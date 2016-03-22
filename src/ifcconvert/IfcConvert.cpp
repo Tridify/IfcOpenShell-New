@@ -514,12 +514,18 @@ int main(int argc, char** argv) {
 
 	delete serializer;
 
-    rename_file(output_temp_filename, output_filename);
+    bool successful = rename_file(output_temp_filename, output_filename);
+    // Renaming might fail (e.g. maybe the existing file was open in a viewer application)
+    if (!successful) {
+        Logger::Message(Logger::LOG_ERROR, "Unable to write output file '" + output_filename + "");
+    }
 
     if (output_extension == ".obj") {
         std::string mtl_filename = change_extension(output_filename, "mtl");
         std::string mtl_tmp_filename = mtl_filename + TEMP_FILE_EXTENSION;
-        rename_file(mtl_tmp_filename, mtl_filename);
+        if (!rename_file(mtl_tmp_filename, mtl_filename)) {
+            Logger::Message(Logger::LOG_ERROR, "Unable to write output file '" + mtl_filename + "");
+        }
     }
 
 	write_log();
@@ -531,7 +537,7 @@ int main(int argc, char** argv) {
     else
         printf("\nConversion took %d minute(s) %d seconds\n", seconds/60, seconds%60); // TODO Logger::Message(Logger::LOG_NOTICE, ...);
 
-	return 0;
+    return successful ? 0 : 1;
 }
 
 void write_log() {
