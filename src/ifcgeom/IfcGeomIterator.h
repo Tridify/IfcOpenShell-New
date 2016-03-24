@@ -372,10 +372,27 @@ namespace IfcGeom {
 								}
 							}
 
+
+                            const bool with_children = settings.get(IteratorSettings::WITH_CHILDREN);
                             foreach(const boost::regex& r, names_to_include_or_exclude) {
-                                if (boost::regex_match((*jt)->Name(), r)) {
-                                    found = true;
-                                    break;
+                                if (with_children) {
+                                    IfcSchema::IfcProduct* current = *jt;
+                                    IfcSchema::IfcProduct* parent;
+                                    while ((parent = static_cast<IfcSchema::IfcProduct*>(kernel.get_decomposing_entity(current))) != 0) {
+                                        if (boost::regex_match(parent->Name(), r)) {
+                                            found = true;
+                                            break;
+                                        }
+                                        current = parent;
+                                    }
+                                    if (found) {
+                                        break;
+                                    }
+                                } else {
+                                    if (boost::regex_match((*jt)->Name(), r)) {
+                                        found = true;
+                                        break;
+                                    }
                                 }
                             }
 

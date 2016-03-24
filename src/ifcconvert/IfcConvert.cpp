@@ -194,7 +194,10 @@ int main(int argc, char** argv) {
             "Sets the deflection tolerance of the mesher, 1e-3 by default if not specified.")
         ("generate-uvs",
             "Generates UVs (texture coordinates) by using simple box projection. Requires normals. "
-            "Not guaranteed to work properly if used with --weld-vertices.");
+            "Not guaranteed to work properly if used with --weld-vertices.")
+        ("with-children",
+            "Applies --include or --exclude also to the child elements of the filtered element, e.g. "
+            "--include --with-children --names \"Level 1\" includes element with name \"Level 1\" and all of its children.");
 
     std::string bounds;
     boost::program_options::options_description serializer_options("Serialization options");
@@ -273,6 +276,7 @@ int main(int argc, char** argv) {
     const bool no_normals = vmap.count("no-normals") != 0 ;
     bool center_model = vmap.count("center-model") != 0 ;
     const bool generate_uvs = vmap.count("generate-uvs") != 0 ;
+    const bool with_children = vmap.count("with-children") != 0;
     const bool deflection_tolerance_specified = vmap.count("deflection-tolerance") != 0 ;
 	boost::optional<int> bounding_width, bounding_height;
 	if (vmap.count("bounds") == 1) {
@@ -372,6 +376,7 @@ int main(int argc, char** argv) {
     settings.set(IfcGeom::IteratorSettings::NO_NORMALS, no_normals);
     settings.set(IfcGeom::IteratorSettings::CENTER_MODEL, center_model);
     settings.set(IfcGeom::IteratorSettings::GENERATE_UVS, generate_uvs);
+    settings.set(IfcGeom::IteratorSettings::WITH_CHILDREN, with_children);
     if (deflection_tolerance_specified) {
         settings.set_deflection_tolerance(deflection_tolerance);
     }

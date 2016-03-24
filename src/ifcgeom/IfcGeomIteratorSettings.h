@@ -87,8 +87,10 @@ namespace IfcGeom
             /// Generates UVs by using simple box projection. Requires normals.
             /// Applicable only for DAE output currently.
             GENERATE_UVS = 1 << 16,
+            /// Marks that include/exclude filtering should be applied also to the child elements.
+            WITH_CHILDREN = 1 << 17,
             /// Number of different setting flags.
-            NUM_SETTINGS = 16
+            NUM_SETTINGS = 17
         };
         /// Used to store logical OR combination of setting flags.
         typedef unsigned SettingField;
