@@ -21,6 +21,7 @@
 #include "../ifcparse/IfcException.h"
 
 #include <boost/algorithm/string/replace.hpp>
+#include <boost/optional.hpp>
 
 #include <iostream>
 #include <algorithm>
@@ -75,42 +76,23 @@ unsigned int IfcUtil::IfcBaseType::getArgumentCount() const { return 1; }
 Argument* IfcUtil::IfcBaseType::getArgument(unsigned int i) const { return entity->getArgument(i); }
 const char* IfcUtil::IfcBaseType::getArgumentName(unsigned int i) const { if (i == 0) { return "wrappedValue"; } else { throw IfcParse::IfcAttributeOutOfRangeException("Argument index out of range"); } }
 
-void Logger::SetOutput(std::ostream* l1, std::ostream* l2) { 
-	log1 = l1; 
-	log2 = l2; 
-	if ( ! log2 ) {
-		log2 = &log_stream;
-	}
-}
-void Logger::Message(Logger::Severity type, const std::string& message, IfcAbstractEntity* entity) {
-	if ( log2 && type >= verbosity ) {
-		(*log2) << "[" << severity_strings[type] << "] " << message << std::endl;
-		if ( entity ) (*log2) << entity->toString() << std::endl;
-	}
-}
-void Logger::Status(const std::string& message, bool new_line) {
-	if ( log1 ) {
-		(*log1) << message;
-		if ( new_line ) (*log1) << std::endl;
-		else (*log1) << std::flush;
-	}
-}
-void Logger::ProgressBar(int progress) {
-	if ( log1 ) {
-		Status("\r[" + std::string(progress,'#') + std::string(50 - progress,' ') + "]", false);
-	}
-}
-std::string Logger::GetLog() {
-	return log_stream.str();
-}
-void Logger::Verbosity(Logger::Severity v) { verbosity = v; }
-Logger::Severity Logger::Verbosity() { return verbosity; }
 
-std::ostream* Logger::log1 = 0;
-std::ostream* Logger::log2 = 0;
-std::stringstream Logger::log_stream;
-Logger::Severity Logger::verbosity = Logger::LOG_NOTICE;
-const char* Logger::severity_strings[] = { "Notice","Warning","Error" };
+//Note: some of these methods are overloaded in derived classes
+Argument::operator int() const { throw IfcParse::IfcException("Argument is not an integer"); }
+Argument::operator bool() const { throw IfcParse::IfcException("Argument is not a boolean"); }
+Argument::operator double() const { throw IfcParse::IfcException("Argument is not a number"); }
+Argument::operator std::string() const { throw IfcParse::IfcException("Argument is not a string"); }
+Argument::operator boost::dynamic_bitset<>() const { throw IfcParse::IfcException("Argument is not a binary"); }
+Argument::operator IfcUtil::IfcBaseClass*() const { throw IfcParse::IfcException("Argument is not an entity instance"); }
+Argument::operator std::vector<double>() const { throw IfcParse::IfcException("Argument is not a list of floats"); }
+Argument::operator std::vector<int>() const { throw IfcParse::IfcException("Argument is not a list of ints"); }
+Argument::operator std::vector<std::string>() const { throw IfcParse::IfcException("Argument is not a list of strings"); }
+Argument::operator std::vector<boost::dynamic_bitset<> >() const { throw IfcParse::IfcException("Argument is not a list of binaries"); }
+Argument::operator IfcEntityList::ptr() const { throw IfcParse::IfcException("Argument is not a list of entity instances"); }
+Argument::operator std::vector< std::vector<int> >() const { throw IfcParse::IfcException("Argument is not a list of list of ints"); }
+Argument::operator std::vector< std::vector<double> >() const { throw IfcParse::IfcException("Argument is not a list of list of floats"); }
+Argument::operator IfcEntityListList::ptr() const { throw IfcParse::IfcException("Argument is not a list of list of entity instances"); }
+
 
 static const char* const argument_type_string[] = {
 	"NULL",
@@ -145,20 +127,6 @@ bool IfcUtil::valid_binary_string(const std::string& s) {
 		if (*it != '0' && *it != '1') return false;
 	}
 	return true;
-}
-
-boost::regex IfcUtil::wildcard_string_to_regex(std::string str)
-{
-    // Escape all non-"*?" regex special chars
-    std::string special_chars = "\\^.$|()[]+/";
-    foreach(char c, special_chars) {
-        std::string char_str(1, c);
-        boost::replace_all(str, char_str, "\\"+ char_str);
-    }
-    // Convert "*?" to their regex equivalents
-    boost::replace_all(str, "?", ".");
-    boost::replace_all(str, "*", ".*");
-    return boost::regex(str);
 }
 
 void IfcUtil::sanitate_material_name(std::string &str)

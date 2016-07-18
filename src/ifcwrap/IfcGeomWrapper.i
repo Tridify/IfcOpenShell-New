@@ -83,6 +83,8 @@ struct ShapeRTTI : public boost::static_visitor<PyObject*>
 			return SWIG_NewPointerObj(SWIG_as_voidptr(triangulation_elem), SWIGTYPE_p_IfcGeom__TriangulationElementT_double_t, SWIG_POINTER_OWN);
 		} else if (serialized_elem) {
 			return SWIG_NewPointerObj(SWIG_as_voidptr(serialized_elem), SWIGTYPE_p_IfcGeom__SerializedElementT_double_t, SWIG_POINTER_OWN);
+		} else {
+			throw std::runtime_error("Invalid element encountered");
 		}
 	}
     PyObject* operator()(IfcGeom::Representation::Representation* representation) const {
@@ -92,6 +94,8 @@ struct ShapeRTTI : public boost::static_visitor<PyObject*>
 			return SWIG_NewPointerObj(SWIG_as_voidptr(serialized_representation), SWIGTYPE_p_IfcGeom__Representation__Serialization, SWIG_POINTER_OWN);
 		} else if (triangulated_representation) {
 			return SWIG_NewPointerObj(SWIG_as_voidptr(triangulated_representation), SWIGTYPE_p_IfcGeom__Representation__TriangulationT_double_t, SWIG_POINTER_OWN);
+		} else {
+			throw std::runtime_error("Invalid element encountered");
 		}
 	}
 };
@@ -168,6 +172,7 @@ struct ShapeRTTI : public boost::static_visitor<PyObject*>
 			# Hide the getters with read-only property implementations
 			id = property(id)
 			brep_data = property(brep_data)
+			surface_styles = property(surface_styles)
 	%}
 };
 
@@ -381,6 +386,35 @@ struct ShapeRTTI : public boost::static_visitor<PyObject*>
 			} else {
 				throw IfcParse::IfcException("Invalid additional representation specified");
 			}
+		}
+		return boost::variant<IfcGeom::Element<double>*, IfcGeom::Representation::Representation*>();
+	}
+
+	IfcParse::IfcLateBoundEntity* serialise(const std::string& s, bool advanced=true) {
+		std::stringstream stream(s);
+		BRepTools_ShapeSet shapes;
+		shapes.Read(stream);
+		const TopoDS_Shape& shp = shapes.Shape(shapes.NbShapes());
+
+		const IfcUtil::IfcBaseClass* e = IfcGeom::serialise(shp, advanced);
+		if (e) {
+			return new IfcParse::IfcLateBoundEntity(e->entity);
+		} else {
+			return 0;
+		}
+	}
+
+	IfcParse::IfcLateBoundEntity* tesselate(const std::string& s, double d) {
+		std::stringstream stream(s);
+		BRepTools_ShapeSet shapes;
+		shapes.Read(stream);
+		const TopoDS_Shape& shp = shapes.Shape(shapes.NbShapes());
+
+		const IfcUtil::IfcBaseClass* e = IfcGeom::tesselate(shp, d);
+		if (e) {
+			return new IfcParse::IfcLateBoundEntity(e->entity);
+		} else {
+			return 0;
 		}
 	}
 %}

@@ -45,7 +45,11 @@ SHAPES(IfcShellBasedSurfaceModel);
 SHAPES(IfcFaceBasedSurfaceModel);
 SHAPES(IfcRepresentation);
 SHAPES(IfcMappedItem);
-SHAPES(IfcFacetedBrep);
+// IfcFacetedBrep included
+// IfcAdvancedBrep included
+// IfcFacetedBrepWithVoids included
+// IfcAdvancedBrepWithVoids included
+SHAPES(IfcManifoldSolidBrep);
 SHAPES(IfcGeometricSet);
 
 #ifdef USE_IFC4
@@ -54,6 +58,7 @@ SHAPE(IfcAdvancedBrep);
 // FIXME: Surfaces should have a shape type of their own
 SHAPE(IfcBSplineSurfaceWithKnots);
 SHAPE(IfcTriangulatedFaceSet);
+SHAPE(IfcExtrudedAreaSolidTapered);
 #endif
 SHAPE(IfcPlane);
 SHAPE(IfcExtrudedAreaSolid);
@@ -114,6 +119,7 @@ CURVE(IfcCircle);
 CURVE(IfcEllipse);
 CURVE(IfcLine);
 #ifdef USE_IFC4
+// IfcRationalBSplineCurveWithKnots included
 CURVE(IfcBSplineCurveWithKnots);
 #endif
 

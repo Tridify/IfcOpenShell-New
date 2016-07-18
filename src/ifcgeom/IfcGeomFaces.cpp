@@ -75,6 +75,7 @@
 
 #include <BRepAlgoAPI_Cut.hxx>
 
+#include <ShapeFix_Edge.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeFix_ShapeTolerance.hxx>
 #include <ShapeFix_Solid.hxx>
@@ -199,14 +200,16 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcFace* l, TopoDS_Shape& face) {
 				wire.Reverse();
 			}
 
-			ShapeFix_ShapeTolerance FTol;
-			FTol.SetTolerance(wire, getValue(GV_PRECISION), TopAbs_WIRE);
+			bool flattened_wire = false;
 
 			if (!mf) {
+			process_wire:
+
 				if (face_surface.IsNull()) {
 					mf = new BRepBuilderAPI_MakeFace(wire);
 				} else {
-					mf = new BRepBuilderAPI_MakeFace(face_surface, wire); 
+					/// @todo check necessity of false here
+					mf = new BRepBuilderAPI_MakeFace(face_surface, wire, false); 
 				}				
 
 				/* BRepBuilderAPI_FaceError er = mf->Error();
@@ -220,6 +223,17 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcFace* l, TopoDS_Shape& face) {
 				if (mf->IsDone()) {
 					TopoDS_Face outer_face_bound = mf->Face();
 
+					// In case of (non-planar) face surface, p-curves need to be computed.
+					// For planar faces, Open Cascade generates p-curves on the fly.
+					if (!face_surface.IsNull()) {
+						TopExp_Explorer exp(outer_face_bound, TopAbs_EDGE);
+						for (; exp.More(); exp.Next()) {
+							const TopoDS_Edge& edge = TopoDS::Edge(exp.Current());
+							ShapeFix_Edge fix_edge;
+							fix_edge.FixAddPCurve(edge, outer_face_bound, false, getValue(GV_PRECISION));
+						}
+					}
+					
 					if (BRepCheck_Face(outer_face_bound).OrientationOfWires() == BRepCheck_BadOrientationOfSubshape) {
 						wire.Reverse();
 						same_sense = !same_sense;
@@ -264,9 +278,16 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcFace* l, TopoDS_Shape& face) {
 						success = true;
 					}
 				} else {
-					Logger::Message(Logger::LOG_ERROR, "Failed to process face boundary", bound->entity);
+					const bool non_planar = mf->Error() == BRepBuilderAPI_NotPlanar;
 					delete mf;
-					return false;
+					if (!non_planar || flattened_wire || !flatten_wire(wire)) {
+						Logger::Message(Logger::LOG_ERROR, "Failed to process face boundary", bound->entity);
+						return false;
+					} else {
+						Logger::Message(Logger::LOG_ERROR, "Flattening face boundary", bound->entity);
+						flattened_wire = true;
+						goto process_wire;
+					}
 				}
 
 			} else {
@@ -336,7 +357,14 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcRectangleProfileDef* l, TopoDS
 	}
 
 	gp_Trsf2d trsf2d;
-	IfcGeom::Kernel::convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
+	
 	double coords[8] = {-x,-y,x,-y,x,y,-x,y};
 	return profile_helper(4,coords,0,0,0,trsf2d,face);
 }
@@ -352,7 +380,14 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcRoundedRectangleProfileDef* l,
 	}
 
 	gp_Trsf2d trsf2d;
-	IfcGeom::Kernel::convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
+
 	double coords[8] = {-x,-y, x,-y, x,y, -x,y};
 	int fillets[4] = {0,1,2,3};
 	double radii[4] = {r,r,r,r};
@@ -379,7 +414,14 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcRectangleHollowProfileDef* l, 
 	TopoDS_Face f2;
 
 	gp_Trsf2d trsf2d;
-	IfcGeom::Kernel::convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
+
 	double coords1[8] = {-x  ,-y,   x  ,-y,   x,  y,   -x,  y  };
 	double coords2[8] = {-x+d,-y+d, x-d,-y+d, x-d,y-d, -x+d,y-d};
 	double radii1[4] = {r1,r1,r1,r1};
@@ -418,7 +460,14 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcTrapeziumProfileDef* l, TopoDS
 	}
 
 	gp_Trsf2d trsf2d;
-	IfcGeom::Kernel::convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
+
 	double coords[8] = {-x1,-y, x1,-y, dx+w-x1,y, dx-x1,y};
 	return profile_helper(4,coords,0,0,0,trsf2d,face);
 }
@@ -456,7 +505,13 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcIShapeProfileDef* l, TopoDS_Sh
 	}
 
 	gp_Trsf2d trsf2d;
-	convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
 
 	double coords[24] = {-x1,-y, x1,-y, x1,-y+dy1, d1,-y+dy1, d1,y-dy2, x2,y-dy2, x2,y, -x2,y, -x2,y-dy2, -d1,y-dy2, -d1,-y+dy1, -x1,-y+dy1};
 	int fillets[4] = {3,4,9,10};
@@ -489,7 +544,13 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcZShapeProfileDef* l, TopoDS_Sh
 	}
 
 	gp_Trsf2d trsf2d;
-	IfcGeom::Kernel::convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
 
 	double coords[16] = {-dx,-y, x,-y, x,-y+dy, dx,-y+dy, dx,y, -x,y, -x,y-dy, -dx,y-dy};
 	int fillets[4] = {2,3,6,7};
@@ -516,7 +577,13 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcCShapeProfileDef* l, TopoDS_Sh
 	}
 
 	gp_Trsf2d trsf2d;
-	IfcGeom::Kernel::convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
 
 	double coords[24] = {-x,-y,x,-y,x,-y+d2,x-d1,-y+d2,x-d1,-y+d1,-x+d1,-y+d1,-x+d1,y-d1,x-d1,y-d1,x-d1,y-d2,x,y-d2,x,y,-x,y};
 	int fillets[8] = {0,1,4,5,6,7,10,11};
@@ -585,7 +652,13 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcLShapeProfileDef* l, TopoDS_Sh
 	}
 
 	gp_Trsf2d trsf2d;
-	convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
 
 	double coords[12] = {-x,-y, x,-y, x,-y+d-dy1, xx, xy, -x+d-dx1,y, -x,y};
 	int fillets[3] = {2,3,4};
@@ -627,7 +700,13 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcUShapeProfileDef* l, TopoDS_Sh
 	}
 
 	gp_Trsf2d trsf2d;
-	convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
 
 	double coords[16] = {-x,-y, x,-y, x,-y+d2-dy2, -x+d1,-y+d2+dy1, -x+d1,y-d2-dy1, x,y-d2+dy2, x,y, -x,y};
 	int fillets[4] = {2,3,4,5};
@@ -710,7 +789,13 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcTShapeProfileDef* l, TopoDS_Sh
 	}
 
 	gp_Trsf2d trsf2d;
-	convert(l->Position(),trsf2d);
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
 
 	double coords[16] = {d1/2.-dx2,-y, xx,xy, x,y-d2+dy2, x,y, -x,y, -x,y-d2+dy2, -xx,xy, -d1/2.+dx2,-y};
 	int fillets[6] = {0,1,2,5,6,7};
@@ -725,13 +810,21 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcCircleProfileDef* l, TopoDS_Sh
 		return false;
 	}
 	
-	gp_Trsf2d trsf;	
-	convert(l->Position(),trsf);
+	gp_Trsf2d trsf2d;
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
+	gp_Ax2 ax = gp_Ax2().Transformed(trsf2d);
 
-	BRepBuilderAPI_MakeWire w;
-	gp_Ax2 ax = gp_Ax2().Transformed(trsf);
+	
 	Handle(Geom_Circle) circle = new Geom_Circle(ax, r);
 	TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(circle);
+
+	BRepBuilderAPI_MakeWire w;
 	w.Add(edge);
 
 	TopoDS_Face f;
@@ -749,9 +842,16 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcCircleHollowProfileDef* l, Top
 		return false;
 	}
 	
-	gp_Trsf2d trsf;	
-	convert(l->Position(),trsf);
-	gp_Ax2 ax = gp_Ax2().Transformed(trsf);
+	gp_Trsf2d trsf2d;
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
+
+	gp_Ax2 ax = gp_Ax2().Transformed(trsf2d);
 
 	BRepBuilderAPI_MakeWire outer;	
 	Handle(Geom_Circle) outerCircle = new Geom_Circle(ax, r);
@@ -779,15 +879,22 @@ bool IfcGeom::Kernel::convert(const IfcSchema::IfcEllipseProfileDef* l, TopoDS_S
 	}
 
 	const bool rotated = ry > rx;
-	gp_Trsf2d trsf;	
-	convert(l->Position(),trsf);
+
+	gp_Trsf2d trsf2d;
+	bool has_position = true;
+#ifdef USE_IFC4
+	has_position = l->hasPosition();
+#endif
+	if (has_position) {
+		IfcGeom::Kernel::convert(l->Position(), trsf2d);
+	}
 
 	gp_Ax2 ax = gp_Ax2();
 	if (rotated) {
 		ax.Rotate(ax.Axis(), M_PI / 2.);
 		std::swap(rx, ry);
 	}
-	ax.Transform(trsf);
+	ax.Transform(trsf2d);
 
 	BRepBuilderAPI_MakeWire w;
 	Handle(Geom_Ellipse) ellipse = new Geom_Ellipse(ax, rx, ry);

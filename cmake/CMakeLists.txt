@@ -30,9 +30,48 @@ OPTION(BUILD_IFCPYTHON "Build IfcPython." ON)
 OPTION(BUILD_EXAMPLES "Build example applications." ON)
 OPTION(USE_VLD "Use Visual Leak Detector for debugging memory leaks, MSVC-only." OFF)
 OPTION(BUILD_IFCMAX "Build IfcMax, a 3ds Max plug-in, Windows-only." OFF)
+OPTION(BUILD_SHARED_LIBS "Build IfcParse and IfcGeom as shared libs (SO/DLL)." OFF)
 # TODO QtViewer is deprecated ATM as it uses the 0.4 API
 # OPTION(BUILD_QTVIEWER "Build IfcOpenShell Qt GUI Viewer (requires Qt 4 framework)." OFF)
 
+
+# Specify where to install files
+IF(NOT BINDIR)
+    set(BINDIR bin)
+ENDIF()
+IF(NOT IS_ABSOLUTE ${BINDIR})
+    set(BINDIR ${CMAKE_INSTALL_PREFIX}/${BINDIR})
+ENDIF()
+MESSAGE(STATUS "BINDIR: ${BINDIR}")
+
+IF(NOT INCLUDEDIR)
+    set(INCLUDEDIR include)
+ENDIF()
+IF(NOT IS_ABSOLUTE ${INCLUDEDIR})
+    set(INCLUDEDIR ${CMAKE_INSTALL_PREFIX}/${INCLUDEDIR})
+ENDIF()
+MESSAGE(STATUS "INCLUDEDIR: ${INCLUDEDIR}")
+
+IF(NOT LIBDIR)
+    set(LIBDIR lib)
+ENDIF()
+IF(NOT IS_ABSOLUTE ${LIBDIR})
+    set(LIBDIR ${CMAKE_INSTALL_PREFIX}/${LIBDIR})
+ENDIF()
+MESSAGE(STATUS "LIBDIR: ${LIBDIR}")
+
+set(IFCOPENSHELL_LIBARY_DIR "") # for *nix rpaths
+
+if (BUILD_SHARED_LIBS)
+    add_definitions(-DBUILD_SHARED_LIBS)
+    if (MSVC)
+        message(WARNING "Building DLLs against the static VC run-time. This is not recommended if the DLLs are to be redistributed.")
+        # C4521: 'identifier' : class 'type' needs to have dll-interface to be used by clients of class 'type2'
+        # There will be couple hundreds of these so suppress them away, https://msdn.microsoft.com/en-us/library/esew7y1w.aspx
+        add_definitions(-wd4251)
+    endif()
+    set(IFCOPENSHELL_LIBARY_DIR "${LIBDIR}")
+endif()
 
 # Create cache entries if absent for environment variables
 MACRO(UNIFY_ENVVARS_AND_CACHE VAR)
@@ -53,13 +92,27 @@ IF(WIN32)
     UNIFY_ENVVARS_AND_CACHE(THREEDS_MAX_SDK_HOME)
 ENDIF()
 
+
+# Set INSTALL_RPATH for target
+MACRO(SET_INSTALL_RPATHS _target _paths)
+    SET(${_target}_rpaths "")
+    FOREACH(_path ${_paths})
+        LIST(FIND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES "${_path}" isSystemDir)
+        IF("${isSystemDir}" STREQUAL "-1")
+            LIST(APPEND ${_target}_rpaths ${_path})
+        ENDIF()
+    ENDFOREACH()
+    MESSAGE(STATUS "Set INSTALL_RPATH for ${_target}: ${${_target}_rpaths}")
+    SET_TARGET_PROPERTIES(${_target} PROPERTIES INSTALL_RPATH "${${_target}_rpaths}")
+ENDMACRO()
+
 # Find Boost
-IF(MSVC)
+IF(WIN32)
 	SET(Boost_USE_STATIC_LIBS ON)
 	SET(Boost_USE_STATIC_RUNTIME ON)
 	SET(Boost_USE_MULTITHREADED ON)
 ENDIF()
-FIND_PACKAGE(Boost REQUIRED COMPONENTS program_options)
+FIND_PACKAGE(Boost REQUIRED COMPONENTS system program_options regex thread date_time)
 MESSAGE(STATUS "Boost include files found in ${Boost_INCLUDE_DIRS}")
 MESSAGE(STATUS "Boost libraries found in ${Boost_LIBRARY_DIRS}")
 
@@ -135,17 +188,18 @@ IF(UNICODE_SUPPORT)
 		SET(ICU_LIBRARY_DIR "${ICU_LIBRARY_DIR}" CACHE FILEPATH "ICU library files")
 	ENDIF()
 
-	FIND_LIBRARY(icu NAMES icuuc icuucd PATHS /usr/lib /usr/lib64 /usr/local/lib /usr/local/lib64 ${ICU_LIBRARY_DIR})
+	FIND_LIBRARY(icu NAMES icuuc icuucd PATHS /usr/lib64 /usr/lib /usr/local/lib64 /usr/local/lib ${ICU_LIBRARY_DIR})
 
 	IF(icu)
 		ADD_DEFINITIONS(-DHAVE_ICU)
 		MESSAGE(STATUS "ICU libraries found")
 		# NOTE icudata appears to be icudt on Windows/MSVC and icudata on others
 		#      dl is included to resolve dlopen and friends symbols
-		IF(MSVC)
+		IF(WIN32)
 			SET(ICU_LIBRARIES icuuc icudt)
 			ADD_DEBUG_VARIANTS(ICU_LIBRARIES "${ICU_LIBRARIES}" "d")
-			ADD_DEFINITIONS(-DU_STATIC_IMPLEMENTATION) # required for static ICU
+            # TODO MinGW build would appear to be using dynamic ICU regardless of this definition.
+            ADD_DEFINITIONS(-DU_STATIC_IMPLEMENTATION) # required for static ICU
 		ELSE()
 			SET(ICU_LIBRARIES icuuc icudata dl)
 		ENDIF()
@@ -165,10 +219,10 @@ IF(COLLADA_SUPPORT)
 
 	IF("${OPENCOLLADA_LIBRARY_DIR}" STREQUAL "")
 		MESSAGE(STATUS "No OpenCOLLADA library directory specified")
-		SET(OPENCOLLADA_LIBRARY_DIR "/usr/lib/opencollada" CACHE FILEPATH "OpenCOLLADA library files")
-	ElSE()
-		SET(OPENCOLLADA_LIBRARY_DIR "${OPENCOLLADA_LIBRARY_DIR}" CACHE FILEPATH "OpenCOLLADA library files")
+		FIND_LIBRARY(OPENCOLLADA_FRAMEWORK_LIB NAMES OpenCOLLADAFramework PATHS /usr/lib64/opencollada /usr/lib/opencollada /usr/lib64 /usr/lib /usr/local/lib64 /usr/local/lib)
+		GET_FILENAME_COMPONENT(OPENCOLLADA_LIBRARY_DIR ${OPENCOLLADA_FRAMEWORK_LIB} PATH)
 	ENDIF()
+	SET(OPENCOLLADA_LIBRARY_DIR "${OPENCOLLADA_LIBRARY_DIR}" CACHE FILEPATH "OpenCOLLADA library files")
 
 	SET(OPENCOLLADA_INCLUDE_DIRS "${OPENCOLLADA_INCLUDE_DIR}/COLLADABaseUtils" "${OPENCOLLADA_INCLUDE_DIR}/COLLADAStreamWriter")
 
@@ -220,12 +274,12 @@ IF(NOT CMAKE_BUILD_TYPE)
 	SET(CMAKE_BUILD_TYPE "Release")
 ENDIF()
 
-# NOTE: RelWithDebInfo and Release use O2 (= /Ox /Gl /Gy/ = Og /Oi /Ot /Oy /Ob2 /Gs /GF /Gy) by default,
-# with the exception with RelWithDebInfo has /Ob1 instead. /Ob2 has been observed to improve the performance
-# of IfcConvert significantly.
-# TODO Setting of /GL and /LTCG don't seem to apply for static libraries (IfcGeom, IfcParse)
 if(ENABLE_BUILD_OPTIMIZATIONS)
 	if(MSVC)
+        # NOTE: RelWithDebInfo and Release use O2 (= /Ox /Gl /Gy/ = Og /Oi /Ot /Oy /Ob2 /Gs /GF /Gy) by default,
+        # with the exception with RelWithDebInfo has /Ob1 instead. /Ob2 has been observed to improve the performance
+        # of IfcConvert significantly.
+        # TODO Setting of /GL and /LTCG don't seem to apply for static libraries (IfcGeom, IfcParse)
 		# C++
 		set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Ob2 /GL")
 		set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
@@ -237,8 +291,9 @@ if(ENABLE_BUILD_OPTIMIZATIONS)
 		set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /OPT:REF")
 		set(CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG /OPT:NOICF")
 	else()
-		#TODO GCC (& Clang?) optimizations
-		message(STATUS "ENABLE_BUILD_OPTIMIZATIONS not implemented for GCC/non-MSVC compilers.)")
+        # GCC-like: Release should use O3 but RelWithDebInfo 02 so enforce 03. Anything other useful that could be added here?
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 	endif()
 endif()
 
@@ -263,6 +318,7 @@ IF(MSVC)
 		ADD_DEFINITIONS(-wd4458)
 	ENDIF()
 	# Link against the static VC runtime
+    # TODO Make this configurable
 	FOREACH(flag CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_MINSIZEREL
 			CMAKE_CXX_FLAGS_RELWITHDEBINFO CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
 			CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO)
@@ -274,7 +330,13 @@ IF(MSVC)
 		ENDIF()
 	ENDFOREACH()
 ElSE()
-	ADD_DEFINITIONS(-fPIC -Wno-non-virtual-dtor)
+    add_definitions(-Wno-non-virtual-dtor -Wall)
+    # TODO Preferably use -Wextra too, but currently too much warning spam coming from the dependencies' headers.
+    add_definitions(-std=c++03)
+    # -fPIC is not relevant on Windows and creates pointless warnings
+    if (UNIX)
+        add_definitions(-fPIC)
+    endif()
 ENDIF()
 
 INCLUDE_DIRECTORIES(${INCLUDE_DIRECTORIES} ${OCC_INCLUDE_DIR} ${OPENCOLLADA_INCLUDE_DIRS}
@@ -361,6 +423,24 @@ else()
     endif()
 endif()
 
+# Boost >= 1.58 requires BOOST_OPTIONAL_USE_OLD_DEFINITION_OF_NONE to build on some Linux distros.
+if(NOT Boost_VERSION LESS 105800)
+    add_definitions(-DBOOST_OPTIONAL_USE_OLD_DEFINITION_OF_NONE)
+endif()
+
+LINK_DIRECTORIES(${LINK_DIRECTORIES} ${IfcOpenShell_BINARY_DIR} ${OCC_LIBRARY_DIR} ${OPENCOLLADA_LIBRARY_DIR}
+	${ICU_LIBRARY_DIR} ${Boost_LIBRARY_DIRS}
+)
+if(NOT WIN32)
+	LINK_DIRECTORIES(${LINK_DIRECTORIES} /usr/lib /usr/lib64 /usr/local/lib /usr/local/lib64)
+endif()
+
+if(BUILD_SHARED_LIBS)
+    SET(IFCOPENSHELL_LIBRARIES IfcGeom)
+else()
+    SET(IFCOPENSHELL_LIBRARIES IfcParse IfcGeom)
+endif()
+
 # IfcParse
 file(GLOB IFCPARSE_H_FILES ../src/ifcparse/*.h)
 file(GLOB IFCPARSE_CPP_FILES ../src/ifcparse/*.cpp)
@@ -375,57 +455,68 @@ endforeach()
 
 set(IFCPARSE_FILES ${IFCPARSE_CPP_FILES} ${IFCPARSE_H_FILES})
 
-ADD_LIBRARY(IfcParse STATIC ${IFCPARSE_FILES})
+add_library(IfcParse ${IFCPARSE_FILES})
+set_target_properties(IfcParse PROPERTIES COMPILE_FLAGS -DIfcParse_EXPORTS)
 
 IF(UNICODE_SUPPORT)
-	TARGET_LINK_LIBRARIES(IfcParse ${ICU_LIBRARIES})
+	TARGET_LINK_LIBRARIES(IfcParse ${ICU_LIBRARIES} ${Boost_LIBRARIES})
 ENDIF()
 
 # IfcGeom
 file(GLOB IFCGEOM_H_FILES ../src/ifcgeom/*.h)
 file(GLOB IFCGEOM_CPP_FILES ../src/ifcgeom/*.cpp)
-
 set(IFCGEOM_FILES ${IFCGEOM_CPP_FILES} ${IFCGEOM_H_FILES})
-ADD_LIBRARY(IfcGeom STATIC ${IFCGEOM_FILES})
+
+IF(BUILD_SHARED_LIBS)
+	message(WARNING "Building IfcGeom as shared library currently not supported depending on platform and compiler options")
+ENDIF()
+
+if(WIN32)
+    add_library(IfcGeom STATIC ${IFCGEOM_FILES})
+else()
+    add_library(IfcGeom ${IFCGEOM_FILES})
+endif()
 
 TARGET_LINK_LIBRARIES(IfcGeom IfcParse)
 
-LINK_DIRECTORIES(${LINK_DIRECTORIES} ${IfcOpenShell_BINARY_DIR} ${OCC_LIBRARY_DIR} ${OPENCOLLADA_LIBRARY_DIR}
-	${ICU_LIBRARY_DIR} ${Boost_LIBRARY_DIRS}
-)
-if(NOT WIN32)
-	LINK_DIRECTORIES(${LINK_DIRECTORIES} /usr/lib /usr/lib64 /usr/local/lib /usr/local/lib64)
-endif()
-
 # IfcConvert
-if (IFCCONVERT_DOUBLE_PRECISION)
-    add_definitions(-DIFCCONVERT_DOUBLE_PRECISION)
-endif()
 file(GLOB IFCCONVERT_CPP_FILES ../src/ifcconvert/*.cpp)
 file(GLOB IFCCONVERT_H_FILES ../src/ifcconvert/*.h)
 set(IFCCONVERT_FILES ${IFCCONVERT_CPP_FILES} ${IFCCONVERT_H_FILES})
 ADD_EXECUTABLE(IfcConvert ${IFCCONVERT_FILES})
+if (IFCCONVERT_DOUBLE_PRECISION)
+    set_target_properties(IfcConvert PROPERTIES COMPILE_FLAGS -DIFCCONVERT_DOUBLE_PRECISION)
+endif()
 
 # Make sure cross-referenced symbols between static OCC libraries get
 # resolved. Also add thread and rt libraries.
 get_filename_component(libTKernelExt ${libTKernel} EXT)
 if("${libTKernelExt}" STREQUAL ".a")
     find_package(Threads)
-    if (NOT APPLE)
-        set(LIB_RT "rt")
+    # OPENCASCADE_LIBRARIES repeated three times below in order to fix cyclic dependencies - use --start-group ... --end-group instead?
+    set(OPENCASCADE_LIBRARIES ${OPENCASCADE_LIBRARIES} ${OPENCASCADE_LIBRARIES} ${OPENCASCADE_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+    if (NOT APPLE AND NOT WIN32)
+        set(OPENCASCADE_LIBRARIES ${OPENCASCADE_LIBRARIES} "rt")
     endif()
-    set(OPENCASCADE_LIBRARIES ${OPENCASCADE_LIBRARIES} ${OPENCASCADE_LIBRARIES} ${OPENCASCADE_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${LIB_RT} dl)
+    if (NOT WIN32)
+        set(OPENCASCADE_LIBRARIES ${OPENCASCADE_LIBRARIES} "dl")
+    endif()
 endif()
 
-TARGET_LINK_LIBRARIES(IfcConvert IfcParse IfcGeom ${OPENCASCADE_LIBRARIES} ${Boost_LIBRARIES} ${OPENCOLLADA_LIBRARIES} ${ICU_LIBRARIES})
+TARGET_LINK_LIBRARIES(IfcConvert ${IFCOPENSHELL_LIBRARIES} ${OPENCASCADE_LIBRARIES} ${Boost_LIBRARIES} ${OPENCOLLADA_LIBRARIES} ${ICU_LIBRARIES})
+if (NOT WIN32)
+    SET_INSTALL_RPATHS(IfcConvert "${IFCOPENSHELL_LIBARY_DIR};${OCC_LIBRARY_DIR};${Boost_LIBRARY_DIRS};${OPENCOLLADA_LIBRARY_DIR};${ICU_LIBRARY_DIR}")
+endif()
 
 # IfcGeomServer
 file(GLOB CPP_FILES ../src/ifcgeomserver/*.cpp)
 file(GLOB H_FILES ../src/ifcgeomserver/*.h)
 set(SOURCE_FILES ${CPP_FILES} ${H_FILES})
 ADD_EXECUTABLE(IfcGeomServer ${SOURCE_FILES})
-
-TARGET_LINK_LIBRARIES(IfcGeomServer IfcParse IfcGeom ${OPENCASCADE_LIBRARIES} ${Boost_LIBRARIES} ${ICU_LIBRARIES})
+TARGET_LINK_LIBRARIES(IfcGeomServer ${IFCOPENSHELL_LIBRARIES} ${OPENCASCADE_LIBRARIES} ${Boost_LIBRARIES} ${ICU_LIBRARIES})
+if (NOT WIN32)
+    SET_INSTALL_RPATHS(IfcGeomServer "${IFCOPENSHELL_LIBARY_DIR};${OCC_LIBRARY_DIR};${Boost_LIBRARY_DIRS};${ICU_LIBRARY_DIR}")
+endif()
 
 IF(BUILD_IFCPYTHON)
 	ADD_SUBDIRECTORY(../src/ifcwrap ifcwrap)
@@ -440,7 +531,16 @@ IF(BUILD_IFCMAX)
 ENDIF()
 
 # CMake installation targets
-INSTALL(FILES ${IFCPARSE_H_FILES} DESTINATION include/ifcparse)
-INSTALL(FILES ${IFCGEOM_H_FILES} DESTINATION include/ifcgeom)
-INSTALL(TARGETS IfcConvert IfcGeomServer DESTINATION bin)
-INSTALL(TARGETS IfcParse IfcGeom DESTINATION lib)
+INSTALL(FILES ${IFCPARSE_H_FILES} 
+	DESTINATION ${INCLUDEDIR}/ifcparse
+)
+
+INSTALL(FILES ${IFCGEOM_H_FILES} 
+	DESTINATION ${INCLUDEDIR}/ifcgeom
+)
+
+INSTALL(TARGETS IfcParse IfcGeom IfcConvert IfcGeomServer
+	ARCHIVE DESTINATION ${LIBDIR}
+	LIBRARY DESTINATION ${LIBDIR}
+	RUNTIME DESTINATION ${BINDIR}
+)

@@ -21,9 +21,11 @@
 #define IFCSIPREFIX
 
 #include "../ifcparse/IfcParse.h"
+#include "IfcParse_Export.h"
 
 namespace IfcParse {
-	double IfcSIPrefixToValue(IfcSchema::IfcSIPrefix::IfcSIPrefix v);
+    IfcParse_EXPORT double IfcSIPrefixToValue(IfcSchema::IfcSIPrefix::IfcSIPrefix);
+    IfcParse_EXPORT double get_SI_equivalent(IfcSchema::IfcNamedUnit*);
 }
 
 #endif

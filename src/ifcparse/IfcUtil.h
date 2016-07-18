@@ -26,6 +26,8 @@
 #include <sstream>
 #include <algorithm>
 
+#include "../ifcparse/IfcParse_Export.h"
+
 #ifdef USE_IFC4
 #include "../ifcparse/Ifc4enum.h"
 #else
@@ -34,7 +36,6 @@
 
 #include <boost/shared_ptr.hpp>
 #include <boost/dynamic_bitset.hpp>
-#include <boost/regex.hpp>
 #include <boost/foreach.hpp>
 
 #define foreach BOOST_FOREACH
@@ -73,10 +74,11 @@ namespace IfcUtil {
 		Argument_UNKNOWN
 	};
 
-	const char* ArgumentTypeToString(ArgumentType argument_type);
+    IfcParse_EXPORT const char* ArgumentTypeToString(ArgumentType argument_type);
 
-	class IfcBaseClass {
+	class IfcParse_EXPORT IfcBaseClass {
 	public:
+        virtual ~IfcBaseClass() {}
 		IfcAbstractEntity* entity;
 		virtual bool is(IfcSchema::Type::Enum v) const = 0;
 		virtual IfcSchema::Type::Enum type() const = 0;
@@ -102,11 +104,11 @@ namespace IfcUtil {
 		}
 	};
 
-	class IfcBaseEntity : public IfcBaseClass {
+	class IfcParse_EXPORT IfcBaseEntity : public IfcBaseClass {
 	};
 
 	// TODO: Investigate whether these should be template classes instead
-	class IfcBaseType : public IfcBaseEntity {
+	class IfcParse_EXPORT IfcBaseType : public IfcBaseEntity {
 	public:
 		unsigned int getArgumentCount() const;
 		Argument* getArgument(unsigned int i) const;
@@ -114,20 +116,17 @@ namespace IfcUtil {
 		IfcSchema::Type::Enum getArgumentEntity(unsigned int /*i*/) const { return IfcSchema::Type::UNDEFINED; }
 	};
 
-	bool valid_binary_string(const std::string& s);
-
-    boost::regex wildcard_string_to_regex(std::string str);
-
+	IfcParse_EXPORT bool valid_binary_string(const std::string& s);
     /// Replaces spaces and potentially other problem causing characters with underscores.
-    void sanitate_material_name(std::string &str);
-    void escape_xml(std::string &str);
-    void unescape_xml(std::string &str);
+    IfcParse_EXPORT void sanitate_material_name(std::string &str);
+    IfcParse_EXPORT void escape_xml(std::string &str);
+    IfcParse_EXPORT void unescape_xml(std::string &str);
 }
 
 template <class T>
 class IfcTemplatedEntityList;
 
-class IfcEntityList {
+class IfcParse_EXPORT IfcEntityList {
 	std::vector<IfcUtil::IfcBaseClass*> ls;
 public:
 	typedef boost::shared_ptr<IfcEntityList> ptr;
@@ -185,7 +184,7 @@ public:
 template <class T>
 class IfcTemplatedEntityListList;
 
-class IfcEntityListList {
+class IfcParse_EXPORT IfcEntityListList {
 	std::vector< std::vector<IfcUtil::IfcBaseClass*> > ls;
 public:
 	typedef boost::shared_ptr< IfcEntityListList > ptr;
@@ -283,24 +282,24 @@ namespace IfcParse {
 	class IfcFile;
 }
 
-class Argument {
+class IfcParse_EXPORT Argument {
 public:
-	virtual operator int() const = 0;
-	virtual operator bool() const = 0;
-	virtual operator double() const = 0;
-	virtual operator std::string() const = 0;
-	virtual operator boost::dynamic_bitset<>() const = 0;
-	virtual operator IfcUtil::IfcBaseClass*() const = 0;
+	virtual operator int() const;
+	virtual operator bool() const;
+	virtual operator double() const;
+	virtual operator std::string() const;
+	virtual operator boost::dynamic_bitset<>() const;
+	virtual operator IfcUtil::IfcBaseClass*() const;
 
-	virtual operator std::vector<int>() const = 0;
-	virtual operator std::vector<double>() const = 0;
-	virtual operator std::vector<std::string>() const = 0;
-	virtual operator std::vector<boost::dynamic_bitset<> >() const = 0;
-	virtual operator IfcEntityList::ptr() const = 0;
+	virtual operator std::vector<int>() const;
+	virtual operator std::vector<double>() const;
+	virtual operator std::vector<std::string>() const;
+	virtual operator std::vector<boost::dynamic_bitset<> >() const;
+	virtual operator IfcEntityList::ptr() const;
 
-	virtual operator std::vector< std::vector<int> >() const = 0;
-	virtual operator std::vector< std::vector<double> >() const = 0;
-	virtual operator IfcEntityListList::ptr() const = 0;
+	virtual operator std::vector< std::vector<int> >() const;
+	virtual operator std::vector< std::vector<double> >() const;
+	virtual operator IfcEntityListList::ptr() const;
 
 	virtual bool isNull() const = 0;
 	virtual unsigned int size() const = 0;
@@ -312,7 +311,7 @@ public:
 	virtual ~Argument() {};
 };
 
-class IfcAbstractEntity {
+class IfcParse_EXPORT IfcAbstractEntity {
 public:
 	IfcParse::IfcFile* file;
 	virtual IfcEntityList::ptr getInverse(IfcSchema::Type::Enum type, int attribute_index) = 0;
@@ -325,28 +324,6 @@ public:
 	virtual std::string toString(bool upper=false) const = 0;
 	virtual unsigned int id() = 0;
 	virtual IfcWrite::IfcWritableEntity* isWritable() = 0;
-};
-
-class Logger {
-public:
-	typedef enum { LOG_NOTICE, LOG_WARNING, LOG_ERROR } Severity;
-private:
-	static std::ostream* log1;
-	static std::ostream* log2;
-	static std::stringstream log_stream;
-	static Severity verbosity;
-	static const char* severity_strings[];
-public:
-	/// Determines to what stream respectively progress and errors are logged
-	static void SetOutput(std::ostream* l1, std::ostream* l2);
-	/// Determines the types of log messages to get logged
-	static void Verbosity(Severity v);
-	static Severity Verbosity();
-	/// Log a message to the output stream
-	static void Message(Severity type, const std::string& message, IfcAbstractEntity* entity=0);
-	static void Status(const std::string& message, bool new_line=true);
-	static void ProgressBar(int progress);
-	static std::string GetLog();
 };
 
 #endif

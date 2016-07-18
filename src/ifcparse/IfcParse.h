@@ -40,8 +40,11 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/dynamic_bitset.hpp>
 
+#include "../ifcparse/IfcParse_Export.h"
+
 #include "../ifcparse/IfcCharacterDecoder.h"
 #include "../ifcparse/IfcUtil.h"
+#include "../ifcparse/IfcLogger.h"
 
 #ifdef USE_IFC4
 #include "../ifcparse/Ifc4.h"
@@ -57,11 +60,38 @@ namespace IfcParse {
 	class IfcFile;
 	class IfcSpfLexer;
 
-	typedef std::pair<IfcSpfLexer*, unsigned> Token;
+	enum TokenType {
+		Token_NONE,
+		Token_STRING,
+		Token_IDENTIFIER,
+		Token_OPERATOR,
+		Token_ENUMERATION,
+		Token_KEYWORD,
+		Token_INT,
+		Token_BOOL,
+		Token_FLOAT,
+		Token_BINARY
+	};
+
+	struct Token {
+		IfcSpfLexer* lexer; //TODO: remove it from here
+		unsigned startPos, endPos;
+		TokenType type;
+		union {
+			bool value_bool;      //types: BOOL
+			char value_char;      //types: OPERATOR
+			int value_int;        //types: INT, IDENTIFIER
+			double value_double;  //types: FLOAT
+		};
+
+		Token() : lexer(0), startPos(0), endPos(0), type(Token_NONE) {}
+		Token(IfcSpfLexer* _lexer, unsigned _startPos, unsigned _endPos, TokenType _type)
+			: lexer(_lexer), startPos(_startPos), endPos(_endPos), type(_type) {}
+	};
 
 	/// Provides functions to convert Tokens to binary data
 	/// Tokens are merely offsets to where they can be read in the file
-	class TokenFunc {
+	class IfcParse_EXPORT TokenFunc {
 	private:
 		static bool startsWith(const Token& t, char c);
 	public:
@@ -72,7 +102,9 @@ namespace IfcParse {
 		/// Returns whether the token can be interpreted as an identifier
 		static bool isIdentifier(const Token& t);
 		/// Returns whether the token can be interpreted as a syntactical operator
-		static bool isOperator(const Token& t, char op = 0);
+		static bool isOperator(const Token& t);
+		/// Returns whether the token is a given operator
+		static bool isOperator(const Token& t, char op);
 		/// Returns whether the token can be interpreted as an enumerated value
 		static bool isEnumeration(const Token& t);
 		/// Returns whether the token can be interpreted as a datatype name
@@ -87,12 +119,16 @@ namespace IfcParse {
 		static bool isBinary(const Token& t);
 		/// Returns the token interpreted as an integer
 		static int asInt(const Token& t);
+		/// Returns the token interpreted as an identifier
+		static int asIdentifier(const Token& t);
 		/// Returns the token interpreted as an boolean (.T. or .F.)
 		static bool asBool(const Token& t);
 		/// Returns the token as a floating point number
 		static double asFloat(const Token& t);
 		/// Returns the token as a string (without the dot or apostrophe)
 		static std::string asString(const Token& t);
+		/// Returns the token as a string in internal buffer (for optimization purposes)
+		static const std::string &asStringRef(const Token& t);
 		/// Returns the token as a string (without the dot or apostrophe)
 		static boost::dynamic_bitset<> asBinary(const Token& t);
 		/// Returns a string representation of the token (including the dot or apostrophe)
@@ -103,29 +139,32 @@ namespace IfcParse {
 	// Functions for creating Tokens from an arbitary file offset
 	// The first 4 bits are reserved for Tokens of type ()=,;$*
 	//
-	Token TokenPtr(IfcSpfLexer* tokens, unsigned int offset);
-	Token TokenPtr(char c);	
-	Token TokenPtr();
+	Token OperatorTokenPtr(IfcSpfLexer* tokens, unsigned start, unsigned end);
+	Token GeneralTokenPtr(IfcSpfLexer* tokens, unsigned start, unsigned end);
+	Token NoneTokenPtr();
 
 	/// A stream of tokens to be read from a IfcSpfStream.
-	class IfcSpfLexer {
+	class IfcParse_EXPORT IfcSpfLexer {
 	private:
 		IfcCharacterDecoder* decoder;
+		//storage for temporary string without allocation
+		mutable std::string _tempString;
 		unsigned int skipWhitespace();
 		unsigned int skipComment();
 	public:
+		std::string &GetTempString() const { return _tempString; }
 		IfcSpfStream* stream;
 		IfcFile* file;
 		IfcSpfLexer(IfcSpfStream* s, IfcFile* f);
 		Token Next();
 		~IfcSpfLexer();
-		std::string TokenString(unsigned int offset);
+		void TokenString(unsigned int offset, std::string &result);
 	};
 
 	/// Argument of type list, e.g.
 	/// #1=IfcDirection((1.,0.,0.));
 	///                 ==========
-	class ArgumentList: public Argument {
+	class IfcParse_EXPORT ArgumentList: public Argument {
 	private:
 		std::vector<Argument*> list;
 		void push(Argument* l);
@@ -136,13 +175,6 @@ namespace IfcParse {
 
 		IfcUtil::ArgumentType type() const;
 		
-		operator int() const;
-		operator bool() const;
-		operator double() const;
-		operator std::string() const;
-		operator boost::dynamic_bitset<>() const;
-		operator IfcUtil::IfcBaseClass*() const;
-
 		operator std::vector<int>() const;
 		operator std::vector<double>() const;
 		operator std::vector<std::string>() const;
@@ -162,10 +194,23 @@ namespace IfcParse {
 		std::string toString(bool upper=false) const;
 	};
 
+
+	/// Argument being null, e.g. '$'
+	///              == ===
+	class IfcParse_EXPORT NullArgument : public Argument {
+	public:
+		NullArgument() {}
+		IfcUtil::ArgumentType type() const { return IfcUtil::Argument_NULL; }
+		bool isNull() const { return true; }
+		unsigned int size() const { return 1; }
+		Argument* operator [] (unsigned int /*i*/) const { throw IfcException("Argument is not a list of attributes"); }
+		std::string toString(bool /*upper=false*/) const { return "$"; }
+	};
+
 	/// Argument of type scalar or string, e.g.
 	/// #1=IfcVector(#2,1.0);
 	///              == ===
-	class TokenArgument : public Argument {
+	class IfcParse_EXPORT TokenArgument : public Argument {
 	private:
 		
 	public: 
@@ -181,16 +226,6 @@ namespace IfcParse {
 		operator boost::dynamic_bitset<>() const;
 		operator IfcUtil::IfcBaseClass*() const;
 
-		operator std::vector<int>() const;
-		operator std::vector<double>() const;
-		operator std::vector<std::string>() const;
-		operator std::vector<boost::dynamic_bitset<> >() const;
-		operator IfcEntityList::ptr() const;
-		
-		operator std::vector< std::vector<int> >() const;
-		operator std::vector< std::vector<double> >() const;
-		operator IfcEntityListList::ptr() const;
-
 		bool isNull() const;
 		unsigned int size() const;
 
@@ -201,7 +236,7 @@ namespace IfcParse {
 	/// Argument of an IFC simple type
 	/// #1=IfcTrimmedCurve(#2,(IFCPARAMETERVALUE(0.)),(IFCPARAMETERVALUE(1.)),.T.,.PARAMETER.);
 	///                        =====================   =====================
-	class EntityArgument : public Argument {
+	class IfcParse_EXPORT EntityArgument : public Argument {
 	private:		
 		IfcUtil::IfcBaseClass* entity;
 	public:
@@ -210,22 +245,7 @@ namespace IfcParse {
 
 		IfcUtil::ArgumentType type() const;
 
-		operator int() const;
-		operator bool() const;
-		operator double() const;
-		operator std::string() const;
-		operator boost::dynamic_bitset<>() const;
 		operator IfcUtil::IfcBaseClass*() const;
-
-		operator std::vector<int>() const;
-		operator std::vector<double>() const;
-		operator std::vector<std::string>() const;
-		operator std::vector<boost::dynamic_bitset<> >() const;
-		operator IfcEntityList::ptr() const;
-
-		operator std::vector< std::vector<int> >() const;
-		operator std::vector< std::vector<double> >() const;
-		operator IfcEntityListList::ptr() const;
 
 		bool isNull() const;
 		unsigned int size() const;
@@ -237,7 +257,7 @@ namespace IfcParse {
 	/// Entity defined in an IFC file, e.g.
 	/// #1=IfcDirection((1.,0.,0.));
 	/// ============================
-	class Entity : public IfcAbstractEntity {
+	class IfcParse_EXPORT Entity : public IfcAbstractEntity {
 	private:
 		mutable ArgumentList* args;
 		mutable IfcSchema::Type::Enum _type;
@@ -263,6 +283,6 @@ namespace IfcParse {
 
 }
 
-std::ostream& operator<< (std::ostream& os, const IfcParse::IfcFile& f);
+IfcParse_EXPORT std::ostream& operator<< (std::ostream& os, const IfcParse::IfcFile& f);
 
 #endif

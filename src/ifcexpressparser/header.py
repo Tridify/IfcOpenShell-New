@@ -41,15 +41,18 @@ class Header(codegen.Base):
         emitted_simpletypes = set()
         while len(emitted_simpletypes) < len(mapping.schema.simpletypes):
             for name, type in mapping.schema.simpletypes.items():
-                if name in emitted_simpletypes: continue
+                if name.lower() in emitted_simpletypes: continue
                 type_str = mapping.make_type_string(mapping.flatten_type_string(type))
                 attr_type = mapping.make_argument_type(type)
                 superclass = mapping.simple_type_parent(name)
                 if superclass is None: 
                     superclass = "IfcUtil::IfcBaseType"
-                elif superclass not in emitted_simpletypes:
+                elif superclass.lower() not in emitted_simpletypes:
                     continue
-                emitted_simpletypes.add(name)
+                else:
+                    # Case normalize
+                    superclass = [k for k in mapping.schema.simpletypes.keys() if k.lower() == superclass.lower()][0]
+                emitted_simpletypes.add(name.lower())
                 write(templates.simpletype, name=name, type=type_str, attr_type=attr_type, superclass=superclass)
 
         class_definitions = []
@@ -60,14 +63,14 @@ class Header(codegen.Base):
         emitted_entities = set()
         while len(emitted_entities) < len(mapping.schema.entities):
             for name, type in mapping.schema.entities.items():
-                if name in emitted_entities: continue
-                if len(type.supertypes) == 0 or set(type.supertypes) < emitted_entities:
+                if name.lower() in emitted_entities: continue
+                if len(type.supertypes) == 0 or set(map(str.lower, type.supertypes)) <= emitted_entities:
                     attr_lines = []
                     def write_method(attr):
                         if attr.optional:
                             attr_lines.append(templates.optional_attribute_description % (attr.name, name))
                             attr_lines.append("bool has%s() const;"%(attr.name))
-                        attr_lines.extend(["/// %s"%d for d in documentation.description((name, attr.name))])
+                        attr_lines.extend(["/// %s"%d for d in documentation.description(".".join((name, attr.name)))])
                         type_str = mapping.get_parameter_type(attr, allow_optional=False, allow_entities=False)
                         if mapping.make_argument_type(attr) != "IfcUtil::Argument_UNKNOWN":
                             attr_lines.append("%s %s() const;"%(type_str, attr.name))
@@ -88,7 +91,11 @@ class Header(codegen.Base):
                     inverse = "\n".join(["%s%s"%(' '*4, a) for a in inv_lines])
                     if len(inverse): inverse += '\n'
 
-                    supertypes = type.supertypes if len(type.supertypes) else ['IfcUtil::IfcBaseEntity']
+                    def case_norm(n):
+                        n = n.lower()
+                        return [k for k in mapping.schema.entities.keys() if k.lower() == n][0]
+                    
+                    supertypes = map(case_norm, type.supertypes) if len(type.supertypes) else ['IfcUtil::IfcBaseEntity']
                     superclass = ": %s "%(", ".join(["public %s"%c for c in supertypes]))
 
                     argument_count = mapping.argument_count(type)
@@ -96,17 +103,17 @@ class Header(codegen.Base):
                     argument_start = argument_count - len(type.attributes)
 
                     argument_name_function_body_switch_stmt = " switch (i) {%s}"%("".join(['case %d: return "%s"; '%(i+argument_start, attr.name) for i, attr in enumerate(type.attributes)])) if len(type.attributes) else ""
-                    argument_name_function_body_tail = (" return %s::getArgumentName(i); "%type.supertypes[0]) if len(type.supertypes) == 1 else ' throw IfcParse::IfcAttributeOutOfRangeException("Argument index out of range"); '
+                    argument_name_function_body_tail = (" return %s::getArgumentName(i); "%type.supertypes[0]) if len(type.supertypes) == 1 else ' (void)i; throw IfcParse::IfcAttributeOutOfRangeException("Argument index out of range"); '
 
                     argument_name_function_body = argument_name_function_body_switch_stmt + argument_name_function_body_tail
 
                     argument_type_function_body_switch_stmt = " switch (i) {%s}"%("".join(['case %d: return %s; '%(i+argument_start, mapping.make_argument_type(attr)) for i, attr in enumerate(type.attributes)])) if len(type.attributes) else ""
-                    argument_type_function_body_tail = (" return %s::getArgumentType(i); "%type.supertypes[0]) if len(type.supertypes) == 1 else ' throw IfcParse::IfcAttributeOutOfRangeException("Argument index out of range"); '
+                    argument_type_function_body_tail = (" return %s::getArgumentType(i); "%type.supertypes[0]) if len(type.supertypes) == 1 else ' (void)i; throw IfcParse::IfcAttributeOutOfRangeException("Argument index out of range"); '
 
                     argument_type_function_body = argument_type_function_body_switch_stmt + argument_type_function_body_tail
                     
                     argument_entity_function_body_switch_stmt = " switch (i) {%s}"%("".join(['case %d: return %s; '%(i+argument_start, mapping.make_argument_entity(attr)) for i, attr in enumerate(type.attributes)])) if len(type.attributes) else ""
-                    argument_entity_function_body_tail = (" return %s::getArgumentEntity(i); "%type.supertypes[0]) if len(type.supertypes) == 1 else ' throw IfcParse::IfcAttributeOutOfRangeException("Argument index out of range"); '
+                    argument_entity_function_body_tail = (" return %s::getArgumentEntity(i); "%type.supertypes[0]) if len(type.supertypes) == 1 else ' (void)i; throw IfcParse::IfcAttributeOutOfRangeException("Argument index out of range"); '
 
                     argument_entity_function_body = argument_entity_function_body_switch_stmt + argument_entity_function_body_tail
 

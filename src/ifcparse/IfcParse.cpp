@@ -29,6 +29,7 @@
 #endif
 
 #include <boost/algorithm/string.hpp>
+#include <boost/math/special_functions/fpclassify.hpp>
 
 #include "../ifcparse/IfcCharacterDecoder.h"
 #include "../ifcparse/IfcParse.h"
@@ -40,6 +41,8 @@
 #include "../ifcparse/IfcFile.h"
 #include "../ifcparse/IfcSIPrefix.h"
 
+#define PERMISSIVE_FLOAT
+
 using namespace IfcParse;
 
 // A static locale for the real number parser. strtod() is locale-dependent, causing issues 
@@ -47,31 +50,61 @@ using namespace IfcParse;
 // strtod_l() is used and a reference to the "C" locale is obtained here. The alternative is 
 // to use std::istringstream::imbue(std::locale::classic()), but there are subtleties in 
 // parsing in MSVC2010 and it appears to be much slower. 
-#ifdef _MSC_VER
+#if defined(_MSC_VER)
+
 static _locale_t locale = (_locale_t) 0;
 void init_locale() {
 	if (locale == (_locale_t) 0) {
 		locale = _create_locale(LC_NUMERIC, "C");
 	}
 }
+
 #else
+
+#if defined(__MINGW64__) || defined(__MINGW32__)
+#include <locale>
+#include <sstream>
+
+typedef void* locale_t;
+static locale_t locale = (locale_t)0;
+
+void init_locale() {}
+
+double strtod_l(const char* start, char** end, locale_t loc) {
+	double d;
+	std::stringstream ss;
+	ss.imbue(std::locale::classic());
+	ss << start;
+	ss >> d;
+	size_t nread = ss.tellg();
+	*end = const_cast<char*>(start) + nread;
+	return d;
+}
+
+#else
+
 #ifdef __APPLE__
 #include <xlocale.h>
 #endif
-static locale_t locale = (locale_t) 0;
+#include <locale.h>
+
+static locale_t locale = (locale_t)0;
 void init_locale() {
-	if (locale == (locale_t) 0) {
-		locale = newlocale(LC_NUMERIC_MASK, "C", (locale_t) 0);
+	if (locale == (locale_t)0) {
+		locale = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
 	}
 }
+
+#endif
+
 #endif
 
 // 
 // Opens the file, gets the filesize and reads a chunk in memory
 //
 IfcSpfStream::IfcSpfStream(const std::string& fn)
-    : stream(0)
-    , buffer(0)
+		: stream(0)
+		, buffer(0)
 {
 	eof = false;
 #ifdef _MSC_VER
@@ -104,8 +137,8 @@ IfcSpfStream::IfcSpfStream(const std::string& fn)
 }
 
 IfcSpfStream::IfcSpfStream(std::istream& f, int l)
-    : stream(0)
-    , buffer(0)
+		: stream(0)
+		, buffer(0)
 {
 	eof = false;
 	size = l;
@@ -121,8 +154,8 @@ IfcSpfStream::IfcSpfStream(std::istream& f, int l)
 }
 
 IfcSpfStream::IfcSpfStream(void* data, int l)
-    : stream(0)
-    , buffer(0)
+		: stream(0)
+		, buffer(0)
 {
 	eof = false;
 	size = l;
@@ -303,11 +336,11 @@ unsigned int IfcSpfLexer::skipComment() {
 //
 Token IfcSpfLexer::Next() {
 
-	if ( stream->eof ) return TokenPtr();
+	if ( stream->eof ) return NoneTokenPtr();
 
 	while (skipWhitespace() || skipComment()) {}
 	
-	if ( stream->eof ) return TokenPtr();
+	if ( stream->eof ) return NoneTokenPtr();
 	unsigned int pos = stream->Tell();
 
 	char c = stream->Peek();
@@ -315,12 +348,11 @@ Token IfcSpfLexer::Next() {
 	// If the cursor is at [()=,;$*] we know token consists of single char
 	if (c == '(' || c == ')' || c == '=' || c == ',' || c == ';' || c == '$' || c == '*') {
 		stream->Inc();
-		return TokenPtr(c);
+		return OperatorTokenPtr(this, pos, pos+1);
 	}
 
 	int len = 0;
 
-	char p = 0;
 	while ( ! stream->eof ) {
 
 		// Read character and increment pointer if not starting a new token
@@ -331,147 +363,222 @@ Token IfcSpfLexer::Next() {
 
 		// If a string is encountered defer processing to the IfcCharacterDecoder
 		if ( c == '\'' ) decoder->dryRun();
-
-		p = c;
 	}
-	if ( len ) return TokenPtr(this,pos);
-	else return TokenPtr();
+	if ( len ) return GeneralTokenPtr(this, pos, stream->Tell());
+	else return NoneTokenPtr();
 }
 
 //
 // Reads a std::string from the file at specified offset
 // Omits whitespace and comments
 //
-std::string IfcSpfLexer::TokenString(unsigned int offset) {
+void IfcSpfLexer::TokenString(unsigned int offset, std::string &buffer) {
 	const bool was_eof = stream->eof;
 	unsigned int old_offset = stream->Tell();
 	stream->Seek(offset);
-	std::string buffer;
-	buffer.reserve(128);
-	char p = 0;
+	buffer.clear();
 	while ( ! stream->eof ) {
 		char c = stream->Peek();
 		if ( buffer.size() && (c == '(' || c == ')' || c == '=' || c == ',' || c == ';' || c == '/') ) break;
 		stream->Inc();
 		if ( c == ' ' || c == '\r' || c == '\n' || c == '\t' ) continue;
-		else if ( c == '\'' ) return *decoder;
+		else if ( c == '\'' ) {
+			buffer = *decoder;
+			return;
+		}
 		else buffer.push_back(c);
-		p = c;
 	}
 	if ( was_eof ) stream->eof = true;
 	else stream->Seek(old_offset);
-	return buffer;
 }
 
-//
-// Functions for creating Tokens from an arbitary file offset.
-// The first 4 bits are reserved for Tokens of type ()=,;$*
-//
-Token IfcParse::TokenPtr(IfcSpfLexer* tokens, unsigned int offset) { return Token(tokens,offset); }
-Token IfcParse::TokenPtr(char c) { return Token((IfcSpfLexer*)0,(unsigned) c); }
-Token IfcParse::TokenPtr() { return Token((IfcSpfLexer*)0,0); }
+//Note: according to STEP standard, there may be newlines in tokens
+inline void RemoveTokenSeparators(IfcSpfStream* stream, unsigned start, unsigned end, std::string &oDestination) {
+	oDestination.clear();
+	for (unsigned i = start; i < end; i++) {
+		char c = stream->Read(i);
+		if (c == ' ' || c == '\r' || c == '\n' || c == '\t')
+			continue;
+		oDestination += c;
+	}
+}
 
-//
-// Functions to convert Tokens to binary data
-//
-bool TokenFunc::startsWith(const Token& t, char c) {
-	return t.first->stream->Read(t.second) == c;
+bool ParseInt(const char *pStart, int &val) {
+	char* pEnd;
+	long result = strtol(pStart, &pEnd, 10);
+	if (*pEnd != 0)
+		return false;
+	val = (int)result;
+	return true;
+}
+
+bool ParseFloat(const char *pStart, double &val) {
+	char* pEnd;
+#ifdef _MSC_VER
+	double result = _strtod_l(pStart, &pEnd, locale);
+#else
+	double result = strtod_l(pStart, &pEnd, locale);
+#endif
+	if (*pEnd != 0)
+		return false;
+	val = result;
+	return true;
+}
+
+bool ParseBool(const char *pStart, bool &val) {
+	if (strlen(pStart) != 3 || pStart[0] != '.' || pStart[2] != '.')
+		return false;
+	char mid = pStart[1];
+	/// @todo https://github.com/IfcOpenShell/IfcOpenShell/issues/95
+	if (!(mid == 'T' || mid == 'F' || mid == 'U'))
+		return false;
+	val = (mid == 'T');
+	return true;
+}
+
+Token IfcParse::OperatorTokenPtr(IfcSpfLexer* lexer, unsigned start, unsigned end) {
+	char first = lexer->stream->Read(start);
+	Token token(lexer, start, end, Token_OPERATOR);
+	token.value_char = first;
+	return token;
+}
+
+Token IfcParse::GeneralTokenPtr(IfcSpfLexer* lexer, unsigned start, unsigned end) {
+	Token token(lexer, start, end, Token_NONE);
+
+	//extract token into temp buffer (remove eol-s, no encoding changes)
+	std::string &tokenStr = lexer->GetTempString();
+	RemoveTokenSeparators(lexer->stream, start, end, tokenStr);
+	
+	//determine type of the token
+	char first = lexer->stream->Read(start);
+	if (first == '#') {
+		token.type = Token_IDENTIFIER;
+		if (!ParseInt(tokenStr.c_str() + 1, token.value_int))
+			throw IfcException("Identifier token as not integer");
+	}
+	else if (first == '\'')
+		token.type = Token_STRING;
+	else if (first == '.') {
+		token.type = Token_ENUMERATION;
+		if (ParseBool(tokenStr.c_str(), token.value_bool)) //bool is also enumeration
+			token.type = Token_BOOL;
+	}
+	else if (first == '"')
+		token.type = Token_BINARY;
+	else if (ParseInt(tokenStr.c_str(), token.value_int))
+		token.type = Token_INT;
+	else if (ParseFloat(tokenStr.c_str(), token.value_double))
+		token.type = Token_FLOAT;
+	else
+		token.type = Token_KEYWORD;
+
+	return token;
+}
+Token IfcParse::NoneTokenPtr() { return Token(); }
+
+
+bool TokenFunc::isOperator(const Token& t) {
+	return t.type == Token_OPERATOR;
 }
 
 bool TokenFunc::isOperator(const Token& t, char op) {
-	return (!t.first) && (!op || (unsigned)op == t.second);
+	return t.type == Token_OPERATOR && t.value_char == op;
 }
 
 bool TokenFunc::isIdentifier(const Token& t) {
-	return ! isOperator(t) && startsWith(t, '#');
+	return t.type == Token_IDENTIFIER;
 }
 
 bool TokenFunc::isString(const Token& t) {
-	return ! isOperator(t) && startsWith(t, '\'');
+	return t.type == Token_STRING;
 }
 
 bool TokenFunc::isEnumeration(const Token& t) {
-	return ! isOperator(t) && startsWith(t, '.');
+	return t.type == Token_ENUMERATION || t.type == Token_BOOL;
 }
 
 bool TokenFunc::isBinary(const Token& t) {
-	return ! isOperator(t) && startsWith(t, '"');
+	return t.type == Token_BINARY;
 }
 
 bool TokenFunc::isKeyword(const Token& t) {
-	// bool is a subtype of enumeration, no need to test for that
-	return !isOperator(t) && !isIdentifier(t) && !isString(t) && !isEnumeration(t) && !isInt(t) && !isFloat(t) && !isBinary(t);
+	return t.type == Token_KEYWORD;
 }
 
 bool TokenFunc::isInt(const Token& t) {
-	if (isOperator(t) || isString(t) || isEnumeration(t)) {
-		return false;
-	}
-	const std::string str = asString(t);
-	const char* start = str.c_str();
-	char* end;
-	/*long result =*/ strtol(start,&end,10);
-	return ((end - start) == (ptrdiff_t)str.length());
+	return t.type == Token_INT;
 }
 
 bool TokenFunc::isBool(const Token& t) {
-	if (!isEnumeration(t)) return false;
-	const std::string str = asString(t);
-	return str == "T" || str == "F";
+	return t.type == Token_BOOL;
 }
 
 bool TokenFunc::isFloat(const Token& t) {
-	if (isOperator(t) || isString(t) || isEnumeration(t)) {
-		return false;
-	}
-	const std::string str = asString(t);
-	const char* start = str.c_str();
-	char* end;
-#ifdef _MSC_VER
-	/*double result =*/ _strtod_l(start,&end,locale);
+#ifdef PERMISSIVE_FLOAT
+	/// NB: We are being more permissive here then allowed by the standard
+	return t.type == Token_FLOAT || t.type == Token_INT;
 #else
-	double result = strtod_l(start,&end,locale);
+	return t.type == Token_FLOAT;
 #endif
-	return ((end - start) == (ptrdiff_t)str.length());
 }
 
 int TokenFunc::asInt(const Token& t) {
-	const std::string str = asString(t);
-	// In case of an ENTITY_INSTANCE_NAME skip the leading #
-	const char* start = str.c_str() + (isIdentifier(t) ? 1 : 0);
-	char* end;
-	long result = strtol(start,&end,10);
-	if ( start == end ) throw IfcException("Token is not an integer or identifier");
-	return (int) result;
+	if (t.type != Token_INT) {
+		throw IfcInvalidTokenException(t.startPos, toString(t), "integer");
+	}
+	return t.value_int;
+}
+
+int TokenFunc::asIdentifier(const Token& t) {
+	if (t.type != Token_IDENTIFIER) {
+		throw IfcInvalidTokenException(t.startPos, toString(t), "instance name");
+	}
+	return t.value_int;
 }
 
 bool TokenFunc::asBool(const Token& t) {
-	const std::string str = asString(t);
-	return str == "T";
+	if (t.type != Token_BOOL) {
+		throw IfcInvalidTokenException(t.startPos, toString(t), "boolean");
+	}
+	return t.value_bool;
 }
 
 double TokenFunc::asFloat(const Token& t) {
-	const std::string str = asString(t);
-	const char* start = str.c_str();
-	char* end;
-#ifdef _MSC_VER
-	double result = _strtod_l(start,&end,locale);
-#else
-	double result = strtod_l(start,&end,locale);
+#ifdef PERMISSIVE_FLOAT
+	if (t.type == Token_INT) {
+		/// NB: We are being more permissive here then allowed by the standard
+		return t.value_int;
+	} else // ----> continues beyond preprocessor directive
 #endif
-	if ( start == end ) throw IfcException("Token is not a real");
-	return result;
+	if (t.type == Token_FLOAT) {
+		return t.value_double;
+	} else {
+		throw IfcInvalidTokenException(t.startPos, toString(t), "real");
+	}
+}
+
+const std::string &TokenFunc::asStringRef(const Token& t) {
+	std::string &str = t.lexer->GetTempString();
+	t.lexer->TokenString(t.startPos, str);
+	if ((isString(t) || isEnumeration(t) || isBinary(t)) && !str.empty()) {
+		//remove start+end characters in-place
+		str.erase(str.end()-1);
+		str.erase(str.begin());
+	}
+	return str;
 }
 
 std::string TokenFunc::asString(const Token& t) {
-	if ( isOperator(t,'$') ) return "";
-	else if ( isOperator(t) ) throw IfcException("Token is not a string");
-	std::string str = t.first->TokenString(t.second);
-	return isString(t) || isEnumeration(t) || isBinary(t) ? str.substr(1,str.size()-2) : str;
+	if (isString(t) || isEnumeration(t) || isBinary(t)) {
+		return asStringRef(t);
+	} else {
+		throw IfcInvalidTokenException(t.startPos, toString(t), "string");
+	}
 }
 
 boost::dynamic_bitset<> TokenFunc::asBinary(const Token& t) {
-	const std::string str = asString(t);
+	const std::string &str = asStringRef(t);
 	if (str.size() < 1) {
 		throw IfcException("Token is not a valid binary sequence");
 	}
@@ -501,8 +608,9 @@ boost::dynamic_bitset<> TokenFunc::asBinary(const Token& t) {
 }
 
 std::string TokenFunc::toString(const Token& t) {
-	if ( isOperator(t) ) return std::string ( (char*) &t.second	, 1 );
-	else return t.first->TokenString(t.second);
+	std::string result;
+	t.lexer->TokenString(t.startPos, result);
+	return result;
 }
 
 
@@ -511,11 +619,11 @@ TokenArgument::TokenArgument(const Token& t) {
 }
 
 EntityArgument::EntityArgument(const Token& t) {
-	IfcParse::IfcFile* file = t.first->file;
+	IfcParse::IfcFile* file = t.lexer->file;
 	if (file->create_latebound_entities()) {
-		entity = new IfcLateBoundEntity(new Entity(0, file, t.second));
+		entity = new IfcLateBoundEntity(new Entity(0, file, t.startPos));
 	} else {
-		entity = IfcSchema::SchemaEntity(new Entity(0, file, t.second));
+		entity = IfcSchema::SchemaEntity(new Entity(0, file, t.startPos));
 	}
 }
 
@@ -526,7 +634,7 @@ EntityArgument::EntityArgument(const Token& t) {
 void ArgumentList::read(IfcSpfLexer* t, std::vector<unsigned int>& ids) {
 	//IfcParse::IfcFile* file = t->file;
 	Token next = t->Next();
-	while( next.second || next.first ) {
+	while( next.startPos || next.lexer ) {
 		if ( TokenFunc::isOperator(next,',') ) {
 			// do nothing
 		} else if ( TokenFunc::isOperator(next,')') ) {
@@ -537,7 +645,7 @@ void ArgumentList::read(IfcSpfLexer* t, std::vector<unsigned int>& ids) {
 			push(alist);
 		} else {
 			if ( TokenFunc::isIdentifier(next) ) {
-				ids.push_back(TokenFunc::asInt(next));
+				ids.push_back(TokenFunc::asIdentifier(next));
 			} if ( TokenFunc::isKeyword(next) ) {
 				t->Next();
 				try {
@@ -606,12 +714,6 @@ std::vector< std::vector<T> > read_aggregate_of_aggregate_as_vector2(const std::
 //
 // Functions for casting the ArgumentList to other types
 //
-ArgumentList::operator int() const { throw IfcException("Argument is not an integer"); }
-ArgumentList::operator bool() const { throw IfcException("Argument is not a boolean"); }
-ArgumentList::operator double() const { throw IfcException("Argument is not a number"); }
-ArgumentList::operator std::string() const { throw IfcException("Argument is not a string"); }
-ArgumentList::operator boost::dynamic_bitset<>() const { throw IfcException("Argument is not a binary"); }
-
 ArgumentList::operator std::vector<double>() const {
 	return read_aggregate_as_vector<double>(list);
 }
@@ -627,8 +729,6 @@ ArgumentList::operator std::vector<std::string>() const {
 ArgumentList::operator std::vector<boost::dynamic_bitset<> >() const {
 	return read_aggregate_as_vector<boost::dynamic_bitset<> >(list);
 }
-
-ArgumentList::operator IfcUtil::IfcBaseClass*() const { throw IfcException("Argument is not an entity instance"); }
 
 ArgumentList::operator IfcEntityList::ptr() const {
 	IfcEntityList::ptr l ( new IfcEntityList() );
@@ -674,7 +774,7 @@ Argument* ArgumentList::operator [] (unsigned int i) const {
 
 void ArgumentList::set(unsigned int i, Argument* argument) {
 	while (size() < i) {
-		push(new TokenArgument(Token(static_cast<IfcSpfLexer*>(0), '$')));
+		push(new NullArgument());
 	}
 	if (i < size()) {
 		delete list[i];
@@ -737,15 +837,7 @@ TokenArgument::operator bool() const { return TokenFunc::asBool(token); }
 TokenArgument::operator double() const { return TokenFunc::asFloat(token); }
 TokenArgument::operator std::string() const { return TokenFunc::asString(token); }
 TokenArgument::operator boost::dynamic_bitset<>() const { return TokenFunc::asBinary(token); }
-TokenArgument::operator std::vector<double>() const { throw IfcException("Argument is not a list of floats"); }
-TokenArgument::operator std::vector<int>() const { throw IfcException("Argument is not a list of ints"); }
-TokenArgument::operator std::vector<std::string>() const { throw IfcException("Argument is not a list of strings"); }
-TokenArgument::operator std::vector<boost::dynamic_bitset<> >() const { throw IfcException("Argument is not a list of binaries"); }
-TokenArgument::operator IfcUtil::IfcBaseClass*() const { return token.first->file->entityById(TokenFunc::asInt(token)); }
-TokenArgument::operator IfcEntityList::ptr() const { throw IfcException("Argument is not a list of entity instances"); }
-TokenArgument::operator std::vector< std::vector<int> >() const { throw IfcException("Argument is not a list of list of ints"); }
-TokenArgument::operator std::vector< std::vector<double> >() const { throw IfcException("Argument is not a list of list of floats"); }
-TokenArgument::operator IfcEntityListList::ptr() const { throw IfcException("Argument is not a list of list of entity instances"); }
+TokenArgument::operator IfcUtil::IfcBaseClass*() const { return token.lexer->file->entityById(TokenFunc::asIdentifier(token)); }
 unsigned int TokenArgument::size() const { return 1; }
 Argument* TokenArgument::operator [] (unsigned int /*i*/) const { throw IfcException("Argument is not a list of attributes"); }
 std::string TokenArgument::toString(bool upper) const { 
@@ -764,20 +856,7 @@ IfcUtil::ArgumentType EntityArgument::type() const {
 //
 // Functions for casting the EntityArgument to other types
 //
-EntityArgument::operator int() const { throw IfcException("Argument is not an integer"); }
-EntityArgument::operator bool() const { throw IfcException("Argument is not a boolean"); }
-EntityArgument::operator double() const { throw IfcException("Argument is not a number"); }
-EntityArgument::operator boost::dynamic_bitset<>() const { throw IfcException("Argument is not a binary"); }
-EntityArgument::operator std::string() const { throw IfcException("Argument is not a string"); }
-EntityArgument::operator std::vector<double>() const { throw IfcException("Argument is not a list of floats"); }
-EntityArgument::operator std::vector<int>() const { throw IfcException("Argument is not a list of ints"); }
-EntityArgument::operator std::vector<std::string>() const { throw IfcException("Argument is not a list of strings"); }
-EntityArgument::operator std::vector<boost::dynamic_bitset<> >() const { throw IfcException("Argument is not a list of binaries"); }
 EntityArgument::operator IfcUtil::IfcBaseClass*() const { return entity; }
-EntityArgument::operator IfcEntityList::ptr() const { throw IfcException("Argument is not a list of entity instances"); }
-EntityArgument::operator std::vector< std::vector<int> >() const { throw IfcException("Argument is not a list of list of ints"); }
-EntityArgument::operator std::vector< std::vector<double> >() const { throw IfcException("Argument is not a list of list of floats"); }
-EntityArgument::operator IfcEntityListList::ptr() const { throw IfcException("Argument is not a list of list of entity instances"); }
 unsigned int EntityArgument::size() const { return 1; }
 Argument* EntityArgument::operator [] (unsigned int /*i*/) const { throw IfcException("Argument is not a list of arguments"); }
 std::string EntityArgument::toString(bool upper) const { 
@@ -785,17 +864,17 @@ std::string EntityArgument::toString(bool upper) const {
 }
 //return entity->entity->toString(); }
 bool EntityArgument::isNull() const { return false; }
-EntityArgument::~EntityArgument() { delete entity; }
+EntityArgument::~EntityArgument() { delete entity->entity; delete entity;}
 
 //
 // Reads an Entity from the list of Tokens
 //
-Entity::Entity(unsigned int i, IfcFile* f) : _id(i), args(0) {
+Entity::Entity(unsigned int i, IfcFile* f) : args(0), _id(i) {
 	file = f;
 	Token datatype = f->tokens->Next();
 	if ( ! TokenFunc::isKeyword(datatype)) throw IfcException("Unexpected token while parsing entity");
-	_type = IfcSchema::Type::FromString(TokenFunc::asString(datatype));
-	offset = datatype.second;
+	_type = IfcSchema::Type::FromString(TokenFunc::asStringRef(datatype));
+	offset = datatype.startPos;
 }
 
 //
@@ -836,9 +915,9 @@ void Entity::Load(std::vector<unsigned int>& ids, bool seek) const {
 		file->tokens->stream->Seek(offset);
 		Token datatype = file->tokens->Next();
 		if ( ! TokenFunc::isKeyword(datatype)) throw IfcException("Unexpected token while parsing entity");
-		_type = IfcSchema::Type::FromString(TokenFunc::asString(datatype));
+		_type = IfcSchema::Type::FromString(TokenFunc::asStringRef(datatype));
 	}
-	Token open = file->tokens->Next();
+	/*Token open =*/ file->tokens->Next();
 	args = new ArgumentList();
 	args->read(file->tokens, ids);
 	unsigned int old_offset = file->tokens->stream->Tell();
@@ -904,10 +983,10 @@ IfcWrite::IfcWritableEntity* Entity::isWritable() {
 
 IfcFile::IfcFile(bool create_latebound_entities)
 	: _create_latebound_entities(create_latebound_entities)
-	, stream(0)
 	, lastId(0)
-	, tokens(0)
 	, MaxId(0)
+	, tokens(0)
+	, stream(0)
 {
 	setDefaultHeaderValues();
 }
@@ -950,8 +1029,8 @@ bool IfcFile::Init(IfcParse::IfcSpfStream* s) {
 		Logger::Message(Logger::LOG_ERROR, std::string("File schema encountered different from expected '") + IfcSchema::Identifier + "'");
 	}
 
-	Token token = TokenPtr();
-	Token previous = TokenPtr();
+	Token token = NoneTokenPtr();
+	Token previous = NoneTokenPtr();
 
 	unsigned int currentId = 0;
 	lastId = 0;
@@ -994,15 +1073,20 @@ bool IfcFile::Init(IfcParse::IfcSpfStream* s) {
 			}
 
 			IfcSchema::Type::Enum ty = entity->type();
-			do {
+			for (;;) {
 				IfcEntityList::ptr instances_by_type = entitiesByType(ty);
 				if (!instances_by_type) {
 					instances_by_type = IfcEntityList::ptr(new IfcEntityList());
 					bytype[ty] = instances_by_type;
 				}
 				instances_by_type->push(entity);
-				ty = IfcSchema::Type::Parent(ty);
-			} while ( ty > -1 );
+				boost::optional<IfcSchema::Type::Enum> pt = IfcSchema::Type::Parent(ty);
+				if (pt) {
+					ty = *pt;
+				} else {
+					break;
+				}
+			}
 			
 			if ( byid.find(currentId) != byid.end() ) {
 				std::stringstream ss;
@@ -1015,13 +1099,13 @@ bool IfcFile::Init(IfcParse::IfcSpfStream* s) {
 			currentId = 0;
 		} else {
 			try { token = tokens->Next(); }
-			catch (... ) { token = TokenPtr(); }
+			catch (... ) { token = NoneTokenPtr(); }
 		}
 
-		if ( ! (token.second || token.first) ) break;
+		if ( ! (token.startPos || token.lexer) ) break;
 		
-		if ( (previous.second || previous.first) && TokenFunc::isIdentifier(previous) ) {
-			int id = TokenFunc::asInt(previous);
+		if ( (previous.startPos || previous.lexer) && TokenFunc::isIdentifier(previous) ) {
+			int id = TokenFunc::asIdentifier(previous);
 			if ( TokenFunc::isOperator(token,'=') ) {
 				currentId = id;
 			} else if (entity) {
@@ -1124,7 +1208,7 @@ IfcUtil::IfcBaseClass* IfcFile::addEntity(IfcUtil::IfcBaseClass* entity) {
 		
 		// In case an entity is added that contains geometry, the unit
 		// information needs to be accounted for for IfcLengthMeasures.
-		boost::optional<double> conversion_factor;
+        double conversion_factor = std::numeric_limits<double>::quiet_NaN();
 
 		for (unsigned i = 0; i < we->getArgumentCount(); ++i) {
 			Argument* attr = we->getArgument(i);
@@ -1158,18 +1242,18 @@ IfcUtil::IfcBaseClass* IfcFile::addEntity(IfcUtil::IfcBaseClass* entity) {
 			} else if (entity->getArgumentEntity(i) == IfcSchema::Type::IfcLengthMeasure ||
 				entity->getArgumentEntity(i) == IfcSchema::Type::IfcPositiveLengthMeasure) 
 			{
-				if (!conversion_factor) {
+				if (boost::math::isnan(conversion_factor)) {
 					conversion_factor = other_file->getUnit(IfcSchema::IfcUnitEnum::IfcUnit_LENGTHUNIT).second / 
 						getUnit(IfcSchema::IfcUnitEnum::IfcUnit_LENGTHUNIT).second;
 				}
 				if (attr_type == IfcUtil::Argument_DOUBLE) {
 					double v = *attr;
-					v *= *conversion_factor;
+					v *= conversion_factor;
 					we->setArgument(i, v);
 				} else if (attr_type == IfcUtil::Argument_AGGREGATE_OF_DOUBLE) {
 					std::vector<double> v = *attr;
 					for (std::vector<double>::iterator it = v.begin(); it != v.end(); ++it) {
-						(*it) *= *conversion_factor;
+						(*it) *= conversion_factor;
 					}
 					we->setArgument(i, v);
 				}
@@ -1200,15 +1284,21 @@ IfcUtil::IfcBaseClass* IfcFile::addEntity(IfcUtil::IfcBaseClass* entity) {
 
 	// The mapping by entity type is updated.
 	IfcSchema::Type::Enum ty = entity->type();
-	do {
+	for (;;) {
 		IfcEntityList::ptr instances_by_type = entitiesByType(ty);
 		if (!instances_by_type) {
 			instances_by_type = IfcEntityList::ptr(new IfcEntityList());
 			bytype[ty] = instances_by_type;
 		}
 		instances_by_type->push(entity);
-		ty = IfcSchema::Type::Parent(ty);
-	} while ( ty > -1 );
+		boost::optional<IfcSchema::Type::Enum> pt = IfcSchema::Type::Parent(ty);
+		if (pt) {
+			ty = *pt;
+		}
+		else {
+			break;
+		}
+	}
 	
 	int new_id = -1;
 	if (entity->entity->isWritable() && !entity->entity->file) {

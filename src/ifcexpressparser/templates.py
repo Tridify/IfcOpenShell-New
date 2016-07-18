@@ -26,14 +26,11 @@ header = """
 
 #include <boost/optional.hpp>
 
+#include "../ifcparse/IfcParse_Export.h"
+
 #include "../ifcparse/IfcUtil.h"
 #include "../ifcparse/IfcException.h"
 #include "../ifcparse/%(schema_name)senum.h"
-
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4100)
-#endif
 
 #define IfcSchema %(schema_name)s
 
@@ -51,16 +48,16 @@ void InitStringMap();
 IfcUtil::IfcBaseClass* SchemaEntity(IfcAbstractEntity* e = 0);
 }
 
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
 #endif
 """
 
 enum_header = """
 #ifndef %(schema_name_upper)sENUM_H
 #define %(schema_name_upper)sENUM_H
+
+#include "../ifcparse/IfcParse_Export.h"
+
+#include <boost/optional.hpp>
 
 #define IfcSchema %(schema_name)s
 
@@ -70,10 +67,10 @@ namespace Type {
     typedef enum {
         %(types)s, UNDEFINED
     } Enum;
-    Enum Parent(Enum v);
-    Enum FromString(const std::string& s);
-    std::string ToString(Enum v);
-    bool IsSimple(Enum v);
+    IfcParse_EXPORT boost::optional<Enum> Parent(Enum v);
+    IfcParse_EXPORT Enum FromString(const std::string& s);
+    IfcParse_EXPORT std::string ToString(Enum v);
+    IfcParse_EXPORT bool IsSimple(Enum v);
 }
 
 }
@@ -87,23 +84,24 @@ lb_header = """
 
 #define IfcSchema %(schema_name)s
 
+#include "../ifcparse/IfcParse_Export.h"
 #include "../ifcparse/IfcUtil.h"
 #include "../ifcparse/IfcEntityDescriptor.h"
 #include "../ifcparse/IfcWritableEntity.h"
 
 namespace %(schema_name)s {
 namespace Type {
-    int GetAttributeCount(Enum t);
-    int GetAttributeIndex(Enum t, const std::string& a);
-    IfcUtil::ArgumentType GetAttributeType(Enum t, unsigned char a);
-    Enum GetAttributeEntity(Enum t, unsigned char a);
-    const std::string& GetAttributeName(Enum t, unsigned char a);
-    bool GetAttributeOptional(Enum t, unsigned char a);
-    bool GetAttributeDerived(Enum t, unsigned char a);
-    std::pair<const char*, int> GetEnumerationIndex(Enum t, const std::string& a);
-    std::pair<Enum, unsigned> GetInverseAttribute(Enum t, const std::string& a);
-    std::set<std::string> GetInverseAttributeNames(Enum t);
-    void PopulateDerivedFields(IfcWrite::IfcWritableEntity* e);
+    IfcParse_EXPORT int GetAttributeCount(Enum t);
+    IfcParse_EXPORT int GetAttributeIndex(Enum t, const std::string& a);
+    IfcParse_EXPORT IfcUtil::ArgumentType GetAttributeType(Enum t, unsigned char a);
+    IfcParse_EXPORT Enum GetAttributeEntity(Enum t, unsigned char a);
+    IfcParse_EXPORT const std::string& GetAttributeName(Enum t, unsigned char a);
+    IfcParse_EXPORT bool GetAttributeOptional(Enum t, unsigned char a);
+    IfcParse_EXPORT bool GetAttributeDerived(Enum t, unsigned char a);
+    IfcParse_EXPORT std::pair<const char*, int> GetEnumerationIndex(Enum t, const std::string& a);
+    IfcParse_EXPORT std::pair<Enum, unsigned> GetInverseAttribute(Enum t, const std::string& a);
+    IfcParse_EXPORT std::set<std::string> GetInverseAttributeNames(Enum t);
+    IfcParse_EXPORT void PopulateDerivedFields(IfcWrite::IfcWritableEntity* e);
 }}
 
 #endif
@@ -146,10 +144,14 @@ Type::Enum Type::FromString(const std::string& s) {
     else return it->second;
 }
 
-Type::Enum Type::Parent(Enum v){
-    if (v < 0 || v >= %(max_id)d) return (Enum)-1;
-%(parent_type_statements)s
-    return (Enum)-1;
+static int parent_map[] = {%(parent_type_statements)s};
+boost::optional<Type::Enum> Type::Parent(Enum v){
+    const int p = parent_map[static_cast<int>(v)];
+    if (p >= 0) {
+        return static_cast<Type::Enum>(p);
+    } else {
+        return boost::none;
+    }
 }
 
 bool Type::IsSimple(Enum v) {
@@ -198,7 +200,6 @@ void InitDescriptorMap() {
     IfcEntityDescriptor* current;
 %(entity_descriptors)s
     // Enumerations
-    IfcEnumerationDescriptor* current_enum;
     std::vector<std::string> values;
 %(enumeration_descriptors)s
 }
@@ -282,7 +283,13 @@ std::pair<Type::Enum, unsigned> Type::GetInverseAttribute(Enum t, const std::str
                 return jt->second;
             }
         }
-        if ((t = Parent(t)) == -1) break;
+        boost::optional<Enum> pt = Parent(t);
+        if (pt) {
+            t = *pt;
+        }
+        else {
+            break;
+        }
     }
     throw IfcException("Attribute not found");
 }
@@ -301,7 +308,13 @@ std::set<std::string> Type::GetInverseAttributeNames(Enum t) {
                 return_value.insert(jt->first);
             }
         }
-        if ((t = Parent(t)) == -1) break;
+        boost::optional<Enum> pt = Parent(t);
+        if (pt) {
+            t = *pt;
+        }
+        else {
+            break;
+        }
     }
 
     return return_value;
@@ -326,7 +339,7 @@ entity_descriptor_attribute_with_entity = '    current->add("%(name)s",%(optiona
 
 enumeration_descriptor = """    values.clear(); values.reserve(128);
 %(enumeration_descriptor_values)s
-    current_enum = enumeration_descriptor_map[Type::%(type)s] = new IfcEnumerationDescriptor(Type::%(type)s, values);"""
+    enumeration_descriptor_map[Type::%(type)s] = new IfcEnumerationDescriptor(Type::%(type)s, values);"""
 
 enumeration_descriptor_value = '    values.push_back("%(name)s");'
 
@@ -334,7 +347,7 @@ derived_field_statement = '    {std::set<int> idxs; %(statements)sderived_map[Ty
 derived_field_statement_attrs = 'idxs.insert(%d); '
 
 simpletype = """%(documentation)s
-class %(name)s : public %(superclass)s {
+class IfcParse_EXPORT %(name)s : public %(superclass)s {
 public:
     virtual IfcUtil::ArgumentType getArgumentType(unsigned int i) const;
     virtual Argument* getArgument(unsigned int i) const;
@@ -367,13 +380,13 @@ typedef IfcUtil::IfcBaseClass %(name)s;
 enumeration = """namespace %(name)s {
 %(documentation)s
 typedef enum {%(values)s} %(name)s;
-const char* ToString(%(name)s v);
-%(name)s FromString(const std::string& s);
+IfcParse_EXPORT const char* ToString(%(name)s v);
+IfcParse_EXPORT %(name)s FromString(const std::string& s);
 }
 """
 
 entity = """%(documentation)s
-class %(name)s %(superclass)s{
+class IfcParse_EXPORT %(name)s %(superclass)s{
 public:
 %(attributes)s    virtual unsigned int getArgumentCount() const { return %(argument_count)d; }
     virtual IfcUtil::ArgumentType getArgumentType(unsigned int i) const {%(argument_type_function_body)s}
