@@ -57,7 +57,8 @@ private:
 			{}
             void addFloatSource(const std::string& mesh_id, const std::string& suffix,
                 const std::vector<real_t>& floats, const char* coords = "XYZ");
-            void write(const std::string &mesh_id, const std::string& default_material_name,
+            std::vector<std::string > write(
+                const std::string &mesh_id, const std::string& default_material_name,
                 const std::vector<real_t>& positions, const std::vector<real_t>& normals,
                 const std::vector<int>& faces, const std::vector<int>& edges,
                 const std::vector<int> material_ids, const std::vector<IfcGeom::Material>& materials,
@@ -102,8 +103,8 @@ private:
 				void close();
                 ColladaSerializer *serializer;
 			};
-			std::vector<IfcGeom::Material> materials;
 		public:
+            std::map<IfcGeom::Material, int> materials;
 			explicit ColladaMaterials(COLLADASW::StreamWriter& stream, ColladaSerializer *_serializer)
 				: COLLADASW::LibraryMaterials(&stream)
 				, serializer(_serializer)
