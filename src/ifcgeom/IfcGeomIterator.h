@@ -508,22 +508,15 @@ namespace IfcGeom {
 					// Filter the products based on the set of entities being included or excluded for
 					// processing. The set is iterated over to able to filter on subtypes.
 					for ( IfcSchema::IfcProduct::list::it jt = unfiltered_products->begin(); jt != unfiltered_products->end(); ++jt ) {
-						bool found = false;
-						for (std::set<IfcSchema::Type::Enum>::const_iterator kt = entities_to_include_or_exclude.begin(); kt != entities_to_include_or_exclude.end(); ++kt) {
-							if ((*jt)->is(*kt)) {
-								found = true;
-								break;
-							}
-						}
-
+                        IfcSchema::IfcProduct* current = *jt;
                         const bool with_children = settings.get(IteratorSettings::WITH_CHILDREN);
-                        foreach(const boost::regex& r, names_to_include_or_exclude) {
+                        bool found = false;
+                        foreach(IfcSchema::Type::Enum type, entities_to_include_or_exclude) {
                             if (with_children) {
-                                IfcSchema::IfcProduct* current = *jt;
                                 IfcSchema::IfcProduct* parent;
                                 while ((parent = static_cast<IfcSchema::IfcProduct*>(kernel.get_decomposing_entity(current))) != 0) {
-                                    if (boost::regex_match(parent->Name(), r)) {
-                                        found = true;
+                                    found = parent->is(type);
+                                    if (found) {
                                         break;
                                     }
                                     current = parent;
@@ -533,8 +526,30 @@ namespace IfcGeom {
                                 }
                             }
                             else {
-                                if (boost::regex_match((*jt)->Name(), r)) {
-                                    found = true;
+                                found = current->is(type);
+                                if (found) {
+                                    break;
+                                }
+                            }
+                        }
+
+                        foreach(const boost::regex& r, names_to_include_or_exclude) {
+                            if (with_children) {
+                                IfcSchema::IfcProduct* parent;
+                                while ((parent = static_cast<IfcSchema::IfcProduct*>(kernel.get_decomposing_entity(current))) != 0) {
+                                    found = boost::regex_match(parent->Name(), r);
+                                    if (found) {
+                                        break;
+                                    }
+                                    current = parent;
+                                }
+                                if (found) {
+                                    break;
+                                }
+                            }
+                            else {
+                                found = boost::regex_match(current->Name(), r);
+                                if (found) {
                                     break;
                                 }
                             }
