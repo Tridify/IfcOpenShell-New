@@ -152,7 +152,7 @@ private:
 	public:
 		ColladaExporter(const std::string& scene_name, const std::string& fn, ColladaSerializer *_serializer)
             : filename(fn)
-            , stream(filename, sizeof(real_t) == sizeof(double)) // utilise Collada stream's double precision feature
+            , stream(filename, false/*TODO make this a command-line switch*/) // utilise Collada stream's double precision feature
 			, scene(scene_name, stream, _serializer)
 			, materials(stream, _serializer)
 			, geometries(stream, _serializer)
