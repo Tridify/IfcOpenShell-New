@@ -175,9 +175,9 @@ int main(int argc, char** argv) {
 			"Specifies whether to enable the slicing of products according "
 			"to their associated IfcMaterialLayerSet.")
 		("include", 
-            "Specifies that the entities listed after --entities or --names are to be included")
+            "Specifies that the entities and/or names listed after --entities and/or --names are to be included")
 		("exclude", 
-            "Specifies that the entities listed after --entities or --names are to be excluded")
+            "Specifies that the entities and/or names listed after --entities and/or --names are to be excluded")
 		("entities", boost::program_options::value< std::vector<std::string> >(&entity_vector)->multitoken(),
 			"A list of entities that should be included in or excluded from the "
 			"geometrical output, depending on whether --exclude or --include is specified. "
