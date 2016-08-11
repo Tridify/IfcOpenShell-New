@@ -507,6 +507,7 @@ namespace IfcGeom {
 					}
 
                     // Filter the products based on the set of entities and/or names being included or excluded for processing.
+                    /// @todo Could be cleaned up a bit.
                     for ( IfcSchema::IfcProduct::list::it jt = unfiltered_products->begin(); jt != unfiltered_products->end(); ++jt ) {
                         IfcSchema::IfcProduct* prod = *jt;
                         const bool with_children = settings.get(IteratorSettings::WITH_CHILDREN);
