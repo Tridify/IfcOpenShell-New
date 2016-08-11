@@ -520,7 +520,7 @@ int main(int argc, char** argv) {
     bool successful = rename_file(output_temp_filename, output_filename);
     // Renaming might fail (e.g. maybe the existing file was open in a viewer application)
     if (!successful) {
-        Logger::Message(Logger::LOG_ERROR, "Unable to write output file '" + output_filename + "");
+        Logger::Message(Logger::LOG_ERROR, "Unable to write output file '" + output_filename + "'");
     }
 
 	write_log();
