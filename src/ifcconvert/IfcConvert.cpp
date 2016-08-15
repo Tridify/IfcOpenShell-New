@@ -269,7 +269,8 @@ int main(int argc, char** argv) {
 	const bool merge_boolean_operands = vmap.count("merge-boolean-operands") != 0;
 #endif
 	const bool disable_opening_subtractions = vmap.count("disable-opening-subtractions") != 0;
-	bool include_entities = vmap.count("include") != 0;
+	bool include_entities = vmap.count("include") != 0 && !entity_vector.empty();
+    const bool include_names = vmap.count("include") != 0 && !names.empty();
 	const bool include_plan = vmap.count("plan") != 0;
 	const bool include_model = vmap.count("model") != 0 || (!include_plan);
 	const bool enable_layerset_slicing = vmap.count("enable-layerset-slicing") != 0;
@@ -437,15 +438,20 @@ int main(int argc, char** argv) {
 	try {
 		if (include_entities) {
 			context_iterator.includeEntities(entities);
-            context_iterator.include_entity_names(names);
 		} else {
 			context_iterator.excludeEntities(entities);
-            context_iterator.exclude_entity_names(names);
 		}
 	} catch (const IfcParse::IfcException& e) {
 		std::cout << "[Error] " << e.what() << std::endl;
 		return 1;
 	}
+
+    if (include_names) {
+        context_iterator.include_entity_names(names);
+    }
+    else {
+        context_iterator.exclude_entity_names(names);
+    }
 
 	if (!serializer->ready()) {
         Logger::Message(Logger::LOG_ERROR, "Unable to open output '" + output_filename + "' file for writing");
