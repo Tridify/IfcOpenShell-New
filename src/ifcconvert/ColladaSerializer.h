@@ -104,14 +104,23 @@ private:
                 ColladaSerializer *serializer;
 			};
 		public:
-            std::map<IfcGeom::Material, int> materials;
+            /// Used to compare materials by name in order to get consistent sorting results.
+            struct MaterialLessThanByName
+            {
+                bool operator()(const IfcGeom::Material& lhs, const IfcGeom::Material& rhs) const
+                {
+                    return lhs.name() < rhs.name();
+                }
+            };
+            typedef std::map<IfcGeom::Material, int, MaterialLessThanByName> material_map_t;
+            material_map_t materials;
 			explicit ColladaMaterials(COLLADASW::StreamWriter& stream, ColladaSerializer *_serializer)
 				: COLLADASW::LibraryMaterials(&stream)
 				, serializer(_serializer)
 		                , effects(stream)
 			{}
-			void add(const IfcGeom::Material& material);
-			bool contains(const IfcGeom::Material& material);
+			void add(const IfcGeom::Material& material, int count_per_mesh);
+			bool contains(const IfcGeom::Material& material, int count_per_mesh) const;
 			void write();
             ColladaSerializer *serializer;
             ColladaEffects effects;

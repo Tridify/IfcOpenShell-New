@@ -40,41 +40,6 @@ static void collada_id(std::string &s)
     IfcUtil::escape_xml(s);
 }
 
-
-static std::map<IfcGeom::Material, int> count_material_usage(const IfcGeom::Representation::Triangulation<real_t>& mesh)
-{
-    std::map<IfcGeom::Material, int> used_materials;
-
-    std::vector<int>::const_iterator index_range_start = mesh.faces().begin();
-    std::vector<int>::const_iterator material_it = mesh.material_ids().begin();
-    int previous_material_id = -1;
-
-    for (std::vector<int>::const_iterator it = mesh.faces().begin(); !mesh.faces().empty(); it += 3) {
-        int current_material_id = 0;
-        if (material_it != mesh.material_ids().end()) {
-            // In order for the last range of equal material ids to be output as well, this loop iterates
-            // one element past the end of the vector. This needs to be observed when incrementing.
-            current_material_id = *(material_it++);
-        }
-
-        const size_t num_triangles = std::distance(index_range_start, it) / 3;
-        if ((previous_material_id != current_material_id && num_triangles > 0) || (it == mesh.faces().end())) {
-            const auto& material =  mesh.materials()[previous_material_id];
-            if (used_materials.find(material) == used_materials.end()) {
-                used_materials[material] = 0;
-            }
-            ++used_materials[material];
-            index_range_start = it;
-        }
-        previous_material_id = current_material_id;
-        if (it == mesh.faces().end()) {
-            break;
-        }
-    }
-
-    return used_materials;
-}
-
 void ColladaSerializer::ColladaExporter::ColladaGeometries::addFloatSource(const std::string& mesh_id,
     const std::string& suffix, const std::vector<real_t>& floats, const char* coords /* = "XYZ" */)
 {
@@ -142,11 +107,9 @@ std::vector<std::string> ColladaSerializer::ColladaExporter::ColladaGeometries::
                 ? materials[previous_material_id].original_name() : materials[previous_material_id].name());
             collada_id(material_name);
 
-            if (used_materials.find(material_name) == used_materials.end()) {
-                used_materials[material_name] = 0;
+            if (++used_materials[material_name] > 1) {
+                material_name += "_" + boost::lexical_cast<std::string>(used_materials[material_name]);
             }
-
-            material_name += "_" + boost::lexical_cast<std::string>(++used_materials[material_name]);
             instance_materials.push_back(material_name);
 
             triangles.setMaterial(material_name);
@@ -281,7 +244,9 @@ void ColladaSerializer::ColladaExporter::ColladaMaterials::ColladaEffects::write
     std::string material_name = (serializer->settings().get(IfcGeom::IteratorSettings::USE_MATERIAL_NAMES)
         ? material.original_name() : material.name());
     collada_id(material_name);
-    material_name += "_" + boost::lexical_cast<std::string>(serializer->exporter.materials.materials[material]);
+    if (serializer->exporter.materials.materials[material] > 1) {
+        material_name += "_" + boost::lexical_cast<std::string>(serializer->exporter.materials.materials[material]);
+    }
     openEffect(material_name + "-fx");
 	COLLADASW::EffectProfile effect(mSW);
 	effect.setShaderType(COLLADASW::EffectProfile::LAMBERT);
@@ -312,20 +277,20 @@ void ColladaSerializer::ColladaExporter::ColladaMaterials::ColladaEffects::close
 	closeLibrary();
 }
 
-void ColladaSerializer::ColladaExporter::ColladaMaterials::add(const IfcGeom::Material& material) {
-    if (materials.find(material) == materials.end()) {
-        materials[material] = 0;
+void ColladaSerializer::ColladaExporter::ColladaMaterials::add(const IfcGeom::Material& material, int count_per_mesh) {
+    if (!contains(material, count_per_mesh)) {
+        ++materials[material];
+        effects.write(material);
     }
-    ++materials[material];
-    effects.write(material);
 }
 
-bool ColladaSerializer::ColladaExporter::ColladaMaterials::contains(const IfcGeom::Material& material) {
-	return materials.find(material) != materials.end();
+bool ColladaSerializer::ColladaExporter::ColladaMaterials::contains(const IfcGeom::Material& material, int count_per_mesh) const {
+    material_map_t::const_iterator it = materials.find(material);
+    return it != materials.end() && it->second >= count_per_mesh;
 }
 
 void ColladaSerializer::ColladaExporter::ColladaMaterials::write() {
-	effects.close();
+    effects.close();
     for (std::map<IfcGeom::Material, int>::const_iterator it = materials.begin(); it != materials.end(); ++it) {
         const IfcGeom::Material& material = (*it).first;
         std::string material_name = (serializer->settings().get(IfcGeom::IteratorSettings::USE_MATERIAL_NAMES)
@@ -334,14 +299,17 @@ void ColladaSerializer::ColladaExporter::ColladaMaterials::write() {
         IfcUtil::sanitate_material_name(material_name_unescaped);
         collada_id(material_name);
         int mat_count = 0;
-        while (mat_count < (*it).second) {
-            std::string postfix = "_" + boost::lexical_cast<std::string>(++mat_count);
+        while (mat_count < it->second) {
+            std::string postfix;
+            if (++mat_count > 1) {
+                postfix = "_" + boost::lexical_cast<std::string>(mat_count);
+            }
             openMaterial(material_name + postfix);
             addInstanceEffect("#" + material_name_unescaped + postfix + "-fx");
             closeMaterial();
         }
-	}
-	closeLibrary();
+    }
+    closeLibrary();
 }
 
 void ColladaSerializer::ColladaExporter::startDocument(const std::string& unit_name, float unit_magnitude) {
@@ -358,22 +326,24 @@ void ColladaSerializer::ColladaExporter::write(const IfcGeom::TriangulationEleme
 {
     const IfcGeom::Representation::Triangulation<real_t>& mesh = o->geometry();
     const std::string name = serializer->settings().get(IfcGeom::IteratorSettings::USE_ELEMENT_GUIDS) ?
-           o->guid() : (serializer->settings().get(IfcGeom::IteratorSettings::USE_ELEMENT_NAMES) ? o->name() : o->unique_id());
+        o->guid() : (serializer->settings().get(IfcGeom::IteratorSettings::USE_ELEMENT_NAMES) ? o->name() : o->unique_id());
     const std::string representation_id = "representation-" + boost::lexical_cast<std::string>(o->geometry().id());
 
-	std::vector<std::string> material_references;
-    auto material_counts = count_material_usage(mesh);
+    std::vector<std::string> material_references;
     foreach(const IfcGeom::Material& material, mesh.materials()) {
-        for (int i = 0; i < material_counts[material]; ++i) {
-            materials.add(material);
+        // Must add a new material and effect instance for each material that are used more than once in one mesh.
+        // Otherwise DAE importers optimize these prematurily by merging the submeshes that share material usage.
+        int material_count = (int)std::count(mesh.materials().begin(), mesh.materials().end(), material);
+        for (int i = 0; i < material_count; ++i) {
+            materials.add(material, material_count);
         }
         std::string material_name = (serializer->settings().get(IfcGeom::IteratorSettings::USE_MATERIAL_NAMES)
             ? material.original_name() : material.name());
         collada_id(material_name);
         material_references.push_back(material_name);
-	}
+    }
 
-	deferreds.push_back(
+    deferreds.push_back(
         DeferredObject(name, representation_id, o->type(), o->transformation().matrix().data(), mesh.verts(), mesh.normals(),
             mesh.faces(), mesh.edges(), mesh.material_ids(), mesh.materials(), material_references, mesh.uvs())
     );

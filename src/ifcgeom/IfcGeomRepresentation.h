@@ -125,28 +125,19 @@ namespace IfcGeom {
 					, _id(shape_model.getId())
 			{
 				for ( IfcGeom::IfcRepresentationShapeItems::const_iterator iit = shape_model.begin(); iit != shape_model.end(); ++ iit ) {
-
+                    /// NOTE Gather up duplicate materials too: material usage count is
+                    // valuable information that is cumbersome to retrieve by other means.
 					int surface_style_id = -1;
 					if (iit->hasStyle()) {
 						Material adapter(&iit->Style());
-						std::vector<Material>::const_iterator jt = std::find(_materials.begin(), _materials.end(), adapter);
-						if (jt == _materials.end()) {
-							surface_style_id = (int)_materials.size();
-							_materials.push_back(adapter);
-						} else {
-							surface_style_id = (int)(jt - _materials.begin());
-						}
+						surface_style_id = (int)_materials.size();
+						_materials.push_back(adapter);
 					}
 
 					if (settings().get(IteratorSettings::APPLY_DEFAULT_MATERIALS) && surface_style_id == -1) {
 						Material material(IfcGeom::get_default_style(settings().element_type()));
-						std::vector<Material>::const_iterator mit = std::find(_materials.begin(), _materials.end(), material);
-						if (mit == _materials.end()) {
-							surface_style_id = (int)_materials.size();
-							_materials.push_back(material);
-						} else {
-							surface_style_id = (int)(mit - _materials.begin());
-						}
+						surface_style_id = (int)_materials.size();
+						_materials.push_back(material);
 					}
 
 					const TopoDS_Shape& s = iit->Shape();

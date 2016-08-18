@@ -44,9 +44,7 @@ namespace IfcGeom {
 		const std::string &name() const;
 		const std::string &original_name() const;
 		bool operator==(const Material& other) const;
-        bool operator<(const IfcGeom::Material& other) const;
 	};
-
 }
 
 #endif

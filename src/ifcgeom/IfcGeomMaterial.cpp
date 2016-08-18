@@ -33,4 +33,3 @@ double IfcGeom::Material::specularity() const { if (hasSpecularity()) return *st
 const std::string &IfcGeom::Material::name() const { return style->Name(); }
 const std::string &IfcGeom::Material::original_name() const { return style->original_name(); }
 bool IfcGeom::Material::operator==(const IfcGeom::Material& other) const { return style == other.style; }
-bool IfcGeom::Material::operator<(const IfcGeom::Material& other) const { return name() < other.name(); } // compare by name in order to get consistent sorting results
