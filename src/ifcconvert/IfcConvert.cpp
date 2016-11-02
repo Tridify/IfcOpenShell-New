@@ -198,7 +198,8 @@ int main(int argc, char** argv) {
             "Generates UVs (texture coordinates) by using simple box projection. Requires normals. "
             "Not guaranteed to work properly if used with --weld-vertices.")
         ("with-children",
-            "Applies --include or --exclude also to the child elements of the filtered element, e.g. "
+            "Applies --include or --exclude also to the decomposition and/or containment (IsDecomposedBy, "
+            "HasOpenings, FillsVoid, ContainedInStructure) of the filtered element, e.g. "
             "--include --with-children --names \"Level 1\" includes element with name \"Level 1\" and all of its children.");
 
     std::string bounds;
