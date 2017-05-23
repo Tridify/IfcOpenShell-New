@@ -111,10 +111,11 @@ public:
 	/// in the first function argument.
 	IfcEntityList::ptr traverse(IfcUtil::IfcBaseClass* instance, int max_level=-1);
 
-	bool Init(const std::string& fn);
-	bool Init(std::istream& fn, int len);
-	bool Init(void* data, int len);
-	bool Init(IfcParse::IfcSpfStream* f);
+    /// @todo Printing to stdout in a library class feels weird. Maybe move the progress prints to the client code?
+    bool Init(const std::string& fn, bool show_progress = true);
+    bool Init(std::istream& fn, int len, bool show_progress = true);
+    bool Init(void* data, int len, bool show_progress = true);
+    bool Init(IfcParse::IfcSpfStream* f, bool show_progress = true);
 
 	IfcEntityList::ptr getInverse(int instance_id, IfcSchema::Type::Enum type, int attribute_index);
 

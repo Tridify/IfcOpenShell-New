@@ -1003,19 +1003,19 @@ IfcFile::IfcFile(bool create_latebound_entities)
 // Parses the IFC file in fn
 // Creates the maps
 //
-bool IfcFile::Init(const std::string& fn) {
-	return IfcFile::Init(new IfcSpfStream(fn));
+bool IfcFile::Init(const std::string& fn, bool show_progress) {
+	return IfcFile::Init(new IfcSpfStream(fn), show_progress);
 }
 
-bool IfcFile::Init(std::istream& f, int len) {
-	return IfcFile::Init(new IfcSpfStream(f,len));
+bool IfcFile::Init(std::istream& f, int len, bool show_progress) {
+	return IfcFile::Init(new IfcSpfStream(f,len), show_progress);
 }
 
-bool IfcFile::Init(void* data, int len) {
-	return IfcFile::Init(new IfcSpfStream(data,len));
+bool IfcFile::Init(void* data, int len, bool show_progress) {
+	return IfcFile::Init(new IfcSpfStream(data,len), show_progress);
 }
 
-bool IfcFile::Init(IfcParse::IfcSpfStream* s) {
+bool IfcFile::Init(IfcParse::IfcSpfStream* s, bool show_progress) {
 	// Initialize a "C" locale for locale-independent
 	// number parsing. See comment above on line 41.
 	init_locale();
@@ -1060,11 +1060,13 @@ bool IfcFile::Init(IfcParse::IfcSpfStream* s) {
 				Logger::Message(Logger::LOG_ERROR,ex.what());
 				continue;
 			}
-			// Update the status after every 1000 instances parsed
-			if ( !((++x)%1000) ) {
-				std::stringstream ss; ss << "\r#" << currentId;
-				Logger::Status(ss.str(), false);
-			}
+            if (show_progress) {
+                // Update the status after every 1000 instances parsed
+                if (!((++x) % 1000)) {
+                    std::stringstream ss; ss << "\r#" << currentId;
+                    Logger::Status(ss.str(), false);
+                }
+            }
 			if ( entity->is(IfcSchema::Type::IfcRoot) ) {
 				IfcSchema::IfcRoot* ifc_root = (IfcSchema::IfcRoot*) entity;
 				try {
