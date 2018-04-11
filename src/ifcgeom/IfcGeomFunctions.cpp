@@ -947,6 +947,13 @@ bool IfcGeom::Kernel::fill_nonmanifold_wires_with_planar_faces(TopoDS_Shape& sha
 		
 	sew.Perform();
 	shape = sew.SewedShape();
+	bool valid_shell;
+	valid_shell = BRepCheck_Analyzer(shape).IsValid() != 0 && count(shape, TopAbs_SHELL) > 0;
+
+	if(!valid_shell) {
+		Logger::Error("Shape is not a valid shell");
+		return false;
+	}
 
 	try {
 		ShapeFix_Solid solid;
@@ -2220,7 +2227,17 @@ bool IfcGeom::Kernel::apply_folded_layerset(const IfcRepresentationShapeItems& i
 			}
 		
 			builder.Perform();
-			shells.push_back(TopoDS::Shell(builder.SewedShape()));
+			TopoDS_Shape shape = builder.SewedShape();
+
+			bool valid_shell;
+			valid_shell = BRepCheck_Analyzer(shape).IsValid() != 0 && count(shape, TopAbs_SHELL) > 0;
+
+			if(!valid_shell) {
+				Logger::Error("Shape is not a valid shell");
+				continue;
+			}
+
+			shells.push_back(TopoDS::Shell(shape));
 		}
 	}
 
@@ -2417,6 +2434,14 @@ bool IfcGeom::Kernel::split_solid_by_shell(const TopoDS_Shape& input, const Topo
 	
 	TopoDS_Solid solid;
 	if (shell.ShapeType() == TopAbs_SHELL) {
+		bool valid_shell;
+		valid_shell = BRepCheck_Analyzer(shell).IsValid() != 0 && count(shell, TopAbs_SHELL) > 0;
+
+		if(!valid_shell) {
+			Logger::Error("Shape is not a valid shell");
+			return false;
+		}
+
 		solid = BRepBuilderAPI_MakeSolid(TopoDS::Shell(shell)).Solid();
 	} else if (shell.ShapeType() == TopAbs_SOLID) {
 		solid = TopoDS::Solid(shell);
