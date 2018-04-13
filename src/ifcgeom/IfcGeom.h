@@ -231,13 +231,14 @@ public:
 	bool approximate_plane_through_wire(const TopoDS_Wire&, gp_Pln&);
 	bool flatten_wire(TopoDS_Wire&);
 	bool triangulate_wire(const TopoDS_Wire&, TopTools_ListOfShape&);
+	bool isValidShell(const TopoDS_Shape &shape) const;
 
 	static double shape_volume(const TopoDS_Shape& s);
 	static double face_area(const TopoDS_Face& f);
 
 	static TopoDS_Shape apply_transformation(const TopoDS_Shape&, const gp_Trsf&);
 	static TopoDS_Shape apply_transformation(const TopoDS_Shape&, const gp_GTrsf&);
-	
+
 	bool is_identity_transform(IfcUtil::IfcBaseClass*);
 
 	IfcSchema::IfcRelVoidsElement::list::ptr find_openings(IfcSchema::IfcProduct* product);
