@@ -25,7 +25,7 @@
 
 #include "../ifcgeom/IfcGeomRenderStyles.h"
 
-namespace IfcGeom {	
+namespace IfcGeom {
 	class IFC_GEOM_API IfcRepresentationShapeItem {
 	private:
 		gp_GTrsf placement;
@@ -47,6 +47,7 @@ namespace IfcGeom {
 		bool hasStyle() const { return style != 0; }
 		const SurfaceStyle& Style() const { return *style; }
 		void setStyle(const SurfaceStyle* style) { this->style = style; }
+		void setShape(const TopoDS_Shape shape) { this->shape = shape; }
 	};
 	typedef std::vector<IfcRepresentationShapeItem> IfcRepresentationShapeItems;
 }
