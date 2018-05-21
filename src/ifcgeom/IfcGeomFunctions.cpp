@@ -2570,7 +2570,11 @@ bool IfcGeom::Kernel::split_solid_by_shell(const TopoDS_Shape& input, const Topo
 	}
 	apply_tolerance(solid, getValue(GV_PRECISION));
 
+#if OCC_VERSION_HEX >= 0x70300
+	TopTools_ListOfShape shapes;
+#else
 	BOPCol_ListOfShape shapes;
+#endif
 	shapes.Append(input);
 	shapes.Append(solid);
 	BOPAlgo_PaveFiller filler(new NCollection_IncAllocator); // TODO: Does this need to be freed?
@@ -2971,7 +2975,10 @@ bool IfcGeom::Kernel::wire_intersections(const TopoDS_Wire& wire, TopTools_ListO
 	}
 
 	int n = count(wire, TopAbs_EDGE);
-	if (n < 3) {
+	if (n < 3 || n > 128) {
+		if (n > 128) {
+			Logger::Notice("Too many segments for detection of self-intersections");
+		}
 		wires.Append(wire);
 		return false;
 	}
