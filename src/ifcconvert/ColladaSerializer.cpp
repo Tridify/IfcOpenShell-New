@@ -37,7 +37,7 @@ using namespace IfcSchema;
 static std::string& collada_id(std::string& s)
 {
     IfcUtil::sanitate_material_name(s);
-    IfcUtil::escape_xml(s);
+    // IfcUtil::escape_xml(s);
 	return s;
 }
 
@@ -387,11 +387,11 @@ void ColladaSerializer::ColladaExporter::ColladaMaterials::write() {
 			material_name = "missing-material-" + material.name();
 		}
 
-        std::string  material_name_unescaped = material_name; // workaround double-escaping that would occur in addInstanceEffect()
-        IfcUtil::sanitate_material_name(material_name_unescaped);
+        // std::string  material_name_unescaped = material_name; // workaround double-escaping that would occur in addInstanceEffect()
+        // IfcUtil::sanitate_material_name(material_name_unescaped);
         collada_id(material_name);
 		openMaterial(material_name);
-        addInstanceEffect("#" + material_name_unescaped + "-fx");
+        addInstanceEffect("#" + material_name + "-fx");
 		closeMaterial();
 	}
 	closeLibrary();
