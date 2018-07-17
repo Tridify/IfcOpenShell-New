@@ -439,27 +439,40 @@ void ColladaSerializer::ColladaExporter::write(const IfcGeom::TriangulationEleme
 std::string ColladaSerializer::ColladaExporter::differentiateSlabTypes(const IfcGeom::TriangulationElement<real_t>* o) {
 	IfcSlab* slab = (IfcSlab*)o->product();
 	std::string result;
-	switch (slab->PredefinedType())
-	{
-		case (IfcSlabTypeEnum::IfcSlabType_FLOOR):
-			result = "_Floor";
-			break;
-		case (IfcSlabTypeEnum::IfcSlabType_ROOF):
-			result = "_Roof";
-			break;
-		case (IfcSlabTypeEnum::IfcSlabType_LANDING):
-			result = "_Landing";
-			break;
-		case (IfcSlabTypeEnum::IfcSlabType_BASESLAB):
-			result = "_BaseSlab";
-			break;
-		case (IfcSlabTypeEnum::IfcSlabType_NOTDEFINED):
-			result = "_NotDefined";
-			break;
-		default:
-			if (slab->hasObjectType()) { result = "_" + slab->ObjectType(); }
-			else { result = "_Unknown"; }
-			break;
+	if(slab->hasPredefinedType()) {
+		switch (slab->PredefinedType()) {
+			case (IfcSlabTypeEnum::IfcSlabType_FLOOR):
+				result = "_Floor";
+				break;
+			case (IfcSlabTypeEnum::IfcSlabType_ROOF):
+				result = "_Roof";
+				break;
+			case (IfcSlabTypeEnum::IfcSlabType_LANDING):
+				result = "_Landing";
+				break;
+			case (IfcSlabTypeEnum::IfcSlabType_BASESLAB):
+				result = "_BaseSlab";
+				break;
+			case (IfcSlabTypeEnum::IfcSlabType_NOTDEFINED):
+				result = "_NotDefined";
+				break;
+			default:
+				if (slab->hasObjectType()) {
+					result = "_" + slab->ObjectType();
+				}
+				else {
+					result = "_Unknown";
+				}
+				break;
+		}
+	}
+	else {
+		if (slab->hasObjectType()) {
+			result = "_" + slab->ObjectType();
+		}
+		else {
+			result = "_Unknown";
+		}
 	}
 	collada_id(result);
 	return result;
