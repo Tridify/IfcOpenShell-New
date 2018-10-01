@@ -1831,7 +1831,7 @@ IfcSchema::IfcRoot* IfcFile::entityByGuid(const std::string& guid) {
 // FIXME: Test destructor to delete entity and arg allocations
 IfcFile::~IfcFile() {
 	for( entity_by_id_t::const_iterator it = byid.begin(); it != byid.end();) {
-		delete (*it)->entity;
+		if (*it) delete (*it)->entity;
 		delete *it++;
 	}
 	delete stream;
