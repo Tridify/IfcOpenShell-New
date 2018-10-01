@@ -68,6 +68,7 @@ private:
 
 	bool parsing_complete_;
 
+	/// Can contain holes (null ptrs).
 	entity_by_id_t byid;
 	entities_by_type_t bytype;
 	entities_by_type_t bytype_excl;
