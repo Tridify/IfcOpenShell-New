@@ -36,7 +36,7 @@ namespace IfcParse {
 class IFC_PARSE_API IfcFile {
 public:
 	typedef std::map<IfcSchema::Type::Enum, IfcEntityList::ptr> entities_by_type_t;
-	typedef boost::unordered_map<unsigned int, IfcUtil::IfcBaseClass*> entity_by_id_t;
+    typedef std::vector<IfcUtil::IfcBaseClass*> entity_by_id_t;
 	typedef std::map<std::string, IfcSchema::IfcRoot*> entity_by_guid_t;
 	typedef std::map<unsigned int, std::vector<unsigned int> > entities_by_ref_t;
 	typedef entity_by_id_t::const_iterator const_iterator;
@@ -171,6 +171,7 @@ public:
 	void register_inverse(unsigned, Token);
 	void register_inverse(unsigned, IfcUtil::IfcBaseClass*);
 	void unregister_inverse(unsigned, IfcUtil::IfcBaseClass*);
+    void reserve_id(int id);
 };
 
 }

@@ -904,6 +904,19 @@ void IfcParse::IfcFile::unregister_inverse(unsigned id_from, IfcUtil::IfcBaseCla
 	}
 }
 
+void IfcParse::IfcFile::reserve_id(int id)
+{
+    if (id > 0 && id < byid.size() && byid[id] != 0) {
+        std::stringstream ss;
+        ss << "Overwriting instance with name #" << id;
+        Logger::Message(Logger::LOG_WARNING, ss.str());
+    }
+
+    while(id >= byid.size()) {
+        byid.push_back(0);
+    }
+}
+
 //
 // Returns a string representation of the entity
 // Note that this initializes the entity if it is not initialized
@@ -1345,11 +1358,7 @@ bool IfcFile::Init(IfcParse::IfcSpfStream* s) {
 				}
 			}
 
-			if (byid.find(current_id) != byid.end()) {
-				std::stringstream ss;
-				ss << "Overwriting instance with name #" << current_id;
-				Logger::Message(Logger::LOG_WARNING,ss.str());
-			}
+            reserve_id(current_id);
 			byid[current_id] = instance;
 			
 			MaxId = (std::max)(MaxId, current_id);
@@ -1613,13 +1622,7 @@ IfcUtil::IfcBaseClass* IfcFile::addEntity(IfcUtil::IfcBaseClass* entity) {
 			new_id = new_entity->entity->id();
 		}
 
-		if (byid.find(new_id) != byid.end()) {
-			// This should not happen
-			std::stringstream ss;
-			ss << "Overwriting entity with id " << new_id;
-			Logger::Message(Logger::LOG_WARNING, ss.str());
-		}
-
+        reserve_id(new_id);
 		// The mapping by entity instance name is updated.
 		byid[new_id] = new_entity;
 	}
@@ -1742,7 +1745,7 @@ void IfcFile::removeEntity(IfcUtil::IfcBaseClass* entity) {
 		byguid.erase(byguid.find(global_id));
 	}
 	
-	byid.erase(byid.find(id));
+	byid[id] = 0;
 
 	IfcSchema::Type::Enum ty = entity->type();
 
@@ -1803,11 +1806,10 @@ IfcEntityList::ptr IfcFile::entitiesByReference(int t) {
 }
 
 IfcUtil::IfcBaseClass* IfcFile::entityById(int id) {
-	entity_by_id_t::const_iterator it = byid.find(id);
-	if (it == byid.end()) {
+	if (id < 0 || id >= byid.size() || byid[id] == 0) {
 		throw IfcException("Instance #" + boost::lexical_cast<std::string>(id) + " not found");
 	}
-	return it->second;
+	return byid[id];
 }
 
 IfcSchema::IfcRoot* IfcFile::entityByGuid(const std::string& guid) {
@@ -1821,9 +1823,9 @@ IfcSchema::IfcRoot* IfcFile::entityByGuid(const std::string& guid) {
 
 // FIXME: Test destructor to delete entity and arg allocations
 IfcFile::~IfcFile() {
-	for( entity_by_id_t::const_iterator it = byid.begin(); it != byid.end(); ++ it ) {
-		delete it->second->entity;
-		delete it->second;
+	for( entity_by_id_t::const_iterator it = byid.begin(); it != byid.end();) {
+		delete (*it)->entity;
+		delete *it++;
 	}
 	delete stream;
 	delete tokens;
@@ -1857,7 +1859,7 @@ std::ostream& operator<< (std::ostream& os, const IfcParse::IfcFile& f) {
 	f.header().write(os);
 
 	for ( IfcFile::entity_by_id_t::const_iterator it = f.begin(); it != f.end(); ++ it ) {
-		const IfcUtil::IfcBaseClass* e = it->second;
+		const IfcUtil::IfcBaseClass* e = *it;
 		if (!IfcSchema::Type::IsSimple(e->type())) {
 			os << e->entity->toString(true) << ";" << std::endl;
 		}
