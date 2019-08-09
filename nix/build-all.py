@@ -588,7 +588,7 @@ if "libxml2" in targets:
             "--without-iconv",
             "--without-lzma"
         ],
-        download_url="ftp://xmlsoft.org/libxml2/",
+        download_url="http://xmlsoft.org/sources/",
         download_name="libxml2-{LIBXML2_VERSION}.tar.gz".format(**locals())
     )
     
