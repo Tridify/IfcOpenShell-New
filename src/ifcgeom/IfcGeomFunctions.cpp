@@ -304,6 +304,25 @@ namespace {
 			}
 		}
 	}
+
+	void get_layerset(const Ifc2x3::IfcRelAssociates::list::ptr &associations,
+					  Ifc2x3::IfcMaterialLayerSetUsage *&usage,
+					  Ifc2x3::IfcMaterialLayerSet *&layerset) {
+		for (IfcSchema::IfcRelAssociates::list::it it = associations->begin(); it != associations->end(); ++it) {
+			IfcSchema::IfcRelAssociatesMaterial *associates_material = (**it).as<IfcSchema::IfcRelAssociatesMaterial>();
+			if (associates_material) {
+				usage = associates_material->RelatingMaterial()->as<IfcSchema::IfcMaterialLayerSetUsage>();
+				if (usage) {
+					layerset = usage->ForLayerSet();
+					break;
+				}
+				layerset = associates_material->RelatingMaterial()->as<IfcSchema::IfcMaterialLayerSet>();
+				if (layerset) {
+					break;
+				}
+			}
+		}
+	}
 }
 
 bool IfcGeom::Kernel::create_solid_from_compound(const TopoDS_Shape& compound, TopoDS_Shape& shape) {
@@ -1891,18 +1910,22 @@ std::pair<std::string, double> IfcGeom::Kernel::initializeUnits(IfcSchema::IfcUn
 
 bool IfcGeom::Kernel::convert_layerset(const IfcSchema::IfcProduct* product, std::vector<Handle_Geom_Surface>& surfaces, std::vector<const SurfaceStyle*>& styles, std::vector<double>& thicknesses) {
 	IfcSchema::IfcMaterialLayerSetUsage* usage = 0;
+	IfcSchema::IfcMaterialLayerSet* layerset = 0;
 	Handle_Geom_Surface reference_surface;
 
 	IfcSchema::IfcRelAssociates::list::ptr associations = product->HasAssociations();
-	for (IfcSchema::IfcRelAssociates::list::it it = associations->begin(); it != associations->end(); ++it) {
-		IfcSchema::IfcRelAssociatesMaterial* associates_material = (**it).as<IfcSchema::IfcRelAssociatesMaterial>();
-		if (associates_material) {
-			usage = associates_material->RelatingMaterial()->as<IfcSchema::IfcMaterialLayerSetUsage>();
-			break;
+	get_layerset(associations, usage, layerset);
+
+	if (!layerset) {
+		IfcEntityList::ptr byType = product->entity->getInverse(IfcSchema::Type::IfcRelDefinesByType, -1);
+		IfcTemplatedEntityList<IfcSchema::IfcRelDefinesByType>::ptr relByType = byType->as<IfcSchema::IfcRelDefinesByType>();
+		for (IfcSchema::IfcRelDefinesByType::list::it it = relByType->begin(); it != relByType->end(); ++it) {
+			IfcSchema::IfcRelAssociates::list::ptr associations =(**it).RelatingType()->HasAssociations();
+			get_layerset(associations, usage, layerset);
+			if (layerset) break;
 		}
 	}
-
-	if (!usage) {
+	if (!layerset) {
 		return false;
 	}
 
@@ -1998,11 +2021,18 @@ bool IfcGeom::Kernel::convert_layerset(const IfcSchema::IfcProduct* product, std
 		reference_surface = new Geom_Plane(extrusion_position.TranslationPart(), extrusion_direction);
 	}
 
-	const IfcSchema::IfcMaterialLayerSet* layerset = usage->ForLayerSet();
-	const bool positive = usage->DirectionSense() == IfcSchema::IfcDirectionSenseEnum::IfcDirectionSense_POSITIVE;
-	double offset = usage->OffsetFromReferenceLine() * getValue(GV_LENGTH_UNIT);
+	const bool positive = usage ? usage->DirectionSense() == IfcSchema::IfcDirectionSenseEnum::IfcDirectionSense_POSITIVE : false;
+	double wallThickness = 0.0;
 
 	IfcSchema::IfcMaterialLayer::list::ptr material_layers = layerset->MaterialLayers();
+	for (IfcSchema::IfcMaterialLayer::list::it it = material_layers->begin(); it != material_layers->end(); ++it) {
+		double thickness = (*it)->LayerThickness() * getValue(GV_LENGTH_UNIT);
+		wallThickness += thickness;
+	}
+	if (positive) {
+		wallThickness *= -1;
+	}
+	double offset = usage ? usage->OffsetFromReferenceLine() * getValue(GV_LENGTH_UNIT) : wallThickness / 2.0;
 
 	surfaces.push_back(new Geom_OffsetSurface(reference_surface, -offset));
 
