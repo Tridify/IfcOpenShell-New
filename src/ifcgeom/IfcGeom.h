@@ -116,6 +116,7 @@ private:
 	std::map<int, SurfaceStyle> style_cache;
 
 	const SurfaceStyle* internalize_surface_style(const std::pair<IfcSchema::IfcSurfaceStyle*, IfcSchema::IfcSurfaceStyleShading*>& shading_style);
+	double get_thickness(const Ifc2x3::IfcMaterialLayer::list::ptr &material_layers);
 
 	 // For stopping PlacementRelTo recursion in convert(const IfcSchema::IfcObjectPlacement* l, gp_Trsf& trsf)
 	IfcSchema::Type::Enum placement_rel_to;

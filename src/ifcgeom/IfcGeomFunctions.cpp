@@ -2022,13 +2022,9 @@ bool IfcGeom::Kernel::convert_layerset(const IfcSchema::IfcProduct* product, std
 	}
 
 	const bool positive = usage ? usage->DirectionSense() == IfcSchema::IfcDirectionSenseEnum::IfcDirectionSense_POSITIVE : false;
-	double wallThickness = 0.0;
 
 	IfcSchema::IfcMaterialLayer::list::ptr material_layers = layerset->MaterialLayers();
-	for (IfcSchema::IfcMaterialLayer::list::it it = material_layers->begin(); it != material_layers->end(); ++it) {
-		double thickness = (*it)->LayerThickness() * getValue(GV_LENGTH_UNIT);
-		wallThickness += thickness;
-	}
+	double wallThickness = get_thickness(material_layers);
 	if (positive) {
 		wallThickness *= -1;
 	}
@@ -2146,6 +2142,15 @@ int IfcGeom::Kernel::count(const TopoDS_Shape& s, TopAbs_ShapeEnum t) {
 		++i;
 	}
 	return i;
+}
+
+
+double IfcGeom::Kernel::get_thickness(const Ifc2x3::IfcMaterialLayer::list::ptr &material_layers) {
+	double wallThickness = 0.0;
+	for (IfcSchema::IfcMaterialLayer::list::it it = material_layers->begin(); it != material_layers->end(); ++it) {
+		wallThickness += (*it)->LayerThickness() * this->getValue(IfcGeom::Kernel::GV_LENGTH_UNIT);
+	}
+	return wallThickness;
 }
 
 bool IfcGeom::Kernel::find_wall_end_points(const IfcSchema::IfcWall* wall, gp_Pnt& start, gp_Pnt& end) {
