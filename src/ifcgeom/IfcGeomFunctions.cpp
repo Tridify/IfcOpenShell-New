@@ -2842,11 +2842,20 @@ bool IfcGeom::Kernel::split_solid_by_surface(const TopoDS_Shape& input, const Ha
 	return b;
 }
 
-bool IfcGeom::Kernel::split_solid_by_shell(const TopoDS_Shape& input, const TopoDS_Shape& shell, TopoDS_Shape& front, TopoDS_Shape& back) {
+bool IfcGeom::Kernel::split_solid_by_shell(const TopoDS_Shape& i2, const TopoDS_Shape& shell, TopoDS_Shape& front, TopoDS_Shape& back) {
 	// Use a shell, typically one or more connected faces, that isolate part
 	// of the input shape, to split this shape into two parts. Make sure that
 	// the addition of the two result volumes matches that of the input.
-	
+	TopoDS_Shape input;
+
+	const bool is_comp = is_compound(i2);
+	if (!is_comp) {
+		input = i2;
+	}
+
+	if (!create_solid_from_compound(i2, input)) {
+		input = i2;
+	}
 	TopoDS_Solid solid;
 	if (shell.ShapeType() == TopAbs_SHELL) {
 		solid = BRepBuilderAPI_MakeSolid(TopoDS::Shell(shell)).Solid();
