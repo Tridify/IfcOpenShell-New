@@ -2480,9 +2480,23 @@ bool IfcGeom::Kernel::fold_layers(const IfcSchema::IfcWall* wall, const IfcRepre
 								Handle_Geom_Curve body_trim_curve = intersection4.Line(1);
 								ShapeAnalysis_Curve sac2;
 								gp_Pnt layer_fold_point_projected; double layer_fold_point_param;
-								sac2.Project(body_trim_curve, layer_fold_point, 1.e-7, layer_fold_point_projected, layer_fold_point_param, false);
-								Handle_Geom_Curve fold_curve = new Geom_OffsetCurve(body_trim_curve->Reversed(), layer_fold_point_projected.Distance(layer_fold_point), gp::DZ());
+								gp_Pnt p;
+								gp_Vec v;
+								body_trim_curve->D1(0., p, v);
 
+								sac2.Project(body_trim_curve, layer_fold_point, 1.e-7, layer_fold_point_projected, layer_fold_point_param, false);
+								Handle_Geom_Curve fold_curve;
+
+								// Under some circumstances intersection result has to be reversed or the folded surface is formed outside of the body.
+								// This should be simplified.
+								if (v.Dot(gp::DY()) * layer_fold_point_param > 0 || (ALMOST_THE_SAME(layer_end_point_param, 0.) && layer_fold_point_param > 0))
+								{
+									body_trim_curve->Reverse();
+								}
+
+								fold_curve = new Geom_OffsetCurve(body_trim_curve, layer_fold_point.Distance(layer_fold_point_projected), gp::DZ());
+								gp_Pnt cp1; gp_Vec cv1;
+								fold_curve->D1(0., cp1, cv1);
 								Handle_Geom_Surface fold_surface = new Geom_SurfaceOfLinearExtrusion(fold_curve, gp::DZ());
 								result_vector->push_back(fold_surface);
 								folds_made = true;
