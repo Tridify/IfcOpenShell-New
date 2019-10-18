@@ -567,21 +567,21 @@ elif "occ" in targets:
         download_name="OCE-{OCE_VERSION}.tar.gz".format(**locals())
     )
         
-if "libxml2" in targets:
-    build_dependency(
-        "libxml2-{LIBXML2_VERSION}".format(**locals()),
-        "autoconf",
-        build_tool_args=[
-            "--without-python",
-            ENABLE_FLAG,
-            DISABLE_FLAG,
-            "--without-zlib",
-            "--without-iconv",
-            "--without-lzma"
-        ],
-        download_url="ftp://xmlsoft.org/libxml2/",
-        download_name="libxml2-{LIBXML2_VERSION}.tar.gz".format(**locals())
-    )
+build_dependency("libxml2-%s" % (LIBXML_VERSION,), "autoconf", build_tool_args=["--without-python", "--disable-shared", "--without-zlib", "--without-iconv", "--without-lzma"], download_url="http://xmlsoft.org/download/", download_name="libxml2-%s.tar.gz" % (LIBXML_VERSION,))
+build_dependency("OpenCOLLADA", "cmake", build_tool_args=["-DLIBXML2_INCLUDE_DIR=%s/install/libxml2-%s/include/libxml2" % (DEPS_DIR, LIBXML_VERSION), "-DLIBXML2_LIBRARIES=%s/install/libxml2-%s/lib/libxml2.a" % (DEPS_DIR, LIBXML_VERSION), "-DPCRE_INCLUDE_DIR=%s/install/pcre-%s/include" % (DEPS_DIR, PCRE_VERSION), "-DPCRE_PCREPOSIX_LIBRARY=%s/install/pcre-%s/lib/libpcreposix.a" % (DEPS_DIR, PCRE_VERSION), "-DPCRE_PCRE_LIBRARY=%s/install/pcre-%s/lib/libpcre.a" % (DEPS_DIR, PCRE_VERSION), "-DCMAKE_INSTALL_PREFIX=%s/install/OpenCOLLADA/" % (DEPS_DIR,)], download_url="https://github.com/KhronosGroup/OpenCOLLADA.git", download_name="OpenCOLLADA", download_tool=download_tool_git, revision=OPENCOLLADA_COMMIT)
+
+# Python should not be built with -fvisibility=hidden, from experience that introduces segfaults
+
+OLD_CXX_FLAGS=os.environ["CXXFLAGS"]
+OLD_C_FLAGS=os.environ["CFLAGS"]
+os.environ["CXXFLAGS"]=CXXFLAGS_MINIMAL
+os.environ["CFLAGS"]=CFLAGS_MINIMAL
+
+# On OSX a dynamic python library is built or it would not be compatible
+# with the system python because of some threading initialization
+PYTHON_CONFIGURE_ARGS=[]
+if get_os() == "Darwin":
+    PYTHON_CONFIGURE_ARGS=["--disable-static", "--enable-shared"]
     
 if "OpenCOLLADA" in targets:
     build_dependency(
