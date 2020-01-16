@@ -1,4 +1,4 @@
-﻿/********************************************************************************
+/********************************************************************************
  *                                                                              *
  * This file is part of IfcOpenShell.                                           *
  *                                                                              *
@@ -2651,7 +2651,12 @@ bool IfcGeom::Kernel::apply_folded_layerset(const IfcRepresentationShapeItems& i
 			}
 		
 			builder.Perform();
-			shells.Append(TopoDS::Shell(builder.SewedShape()));
+			try {
+				shells.Append(TopoDS::Shell(builder.SewedShape()));
+			} catch (Standard_TypeMismatch e) {
+				Logger::Error("Error sewing folded layer surfaces");
+				return false;
+			}
 		}
 	}
 
