@@ -2777,18 +2777,14 @@ namespace {
 				}
 			}
 
-			// Count subshapes
-			size_t n = 0;
-			TopoDS_Iterator sit(split.Shape());
-			for (; sit.More(); sit.Next()) {
-				++n;
-			}
 
+		    TopTools_IndexedMapOfShape solidShapes;
+			TopExp::MapShapes (split.Shape(), TopAbs_SOLID, solidShapes);
 			// Initialize storage
-			slices.resize(n);
+			slices.resize(solidShapes.Extent ());
 
-			sit.Initialize(split.Shape());
-			for (; sit.More(); sit.Next()) {
+			for (int i = 1; i <= solidShapes.Extent (); i++) {
+				TopoDS_Solid solid = TopoDS::Solid(solidShapes(i));
 
 				// Iterate over the faces of solid to find correspondence to original
 				// splitting surfaces. For the outmost slices, there will be a single
@@ -2797,7 +2793,7 @@ namespace {
 				// slices, two surface indices should be find that should be next to
 				// each other in the array of input surfaces.
 
-				TopExp_Explorer exp(sit.Value(), TopAbs_FACE);
+				TopExp_Explorer exp(solid, TopAbs_FACE);
 				int min = std::numeric_limits<int>::max();
 				int max = std::numeric_limits<int>::min();
 				for (; exp.More(); exp.Next()) {
@@ -2825,7 +2821,7 @@ namespace {
 
 				if (idx < (int) slices.size()) {
 					if (slices[idx].IsNull()) {
-						slices[idx] = sit.Value();
+						slices[idx] = solid;
 						continue;
 					}
 				}
