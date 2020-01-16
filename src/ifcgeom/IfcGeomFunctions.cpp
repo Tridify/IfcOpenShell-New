@@ -2694,6 +2694,9 @@ bool IfcGeom::Kernel::fold_layers(const IfcSchema::IfcWall* wall, const IfcRepre
 						}
 					}
 				}
+				if (layer_body_intersection.IsNull()) {
+					return false;
+				}
 
 				if (body_surface.IsNull()) {
 					continue;
