@@ -2423,6 +2423,9 @@ bool IfcGeom::Kernel::fold_layers(const IfcSchema::IfcWall* wall, const IfcRepre
 						}
 					}
 				}
+				if (layer_body_intersection.IsNull()) {
+					return false;
+				}
 
 				GeomAPI_IntCS intersection2(layer_body_intersection, plane);
 				if (intersection2.IsDone() && intersection2.NbPoints() == 1) {
