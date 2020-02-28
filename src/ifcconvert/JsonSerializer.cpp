@@ -256,19 +256,19 @@ namespace {
         return acc;
     }
 
-    // Descends into the tree by recursing into IfcRelContainedInSpatialStructure,
+    // Descends into the tree by recursion into IfcRelContainedInSpatialStructure,
     // IfcRelDecomposes, IfcRelDefinesByType, IfcRelDefinesByProperties relations.
     template <>
-    json::reference& descend(IfcObjectDefinition* product, json::reference& tree) {
-        json::reference& child = format_entity_instance(product, tree);
-        
+    json::reference& descend(IfcObjectDefinition* product, json::reference& ref) {
+        json::reference& child = format_entity_instance(product, ref);
+
         if (product->is(Type::IfcSpatialStructureElement)) {
             IfcSpatialStructureElement* structure = (IfcSpatialStructureElement*) product;
-    
+
             IfcObjectDefinition::list::ptr elements = get_related
                 <IfcSpatialStructureElement, IfcRelContainedInSpatialStructure, IfcObjectDefinition>
                 (structure, &IfcSpatialStructureElement::ContainsElements, &IfcRelContainedInSpatialStructure::RelatedElements);
-        
+
             for (IfcObjectDefinition::list::it it = elements->begin(); it != elements->end(); ++it) {
                 descend(*it, child);
             }
@@ -277,21 +277,22 @@ namespace {
         if (product->is(Type::IfcElement)) {
             IfcElement* element = static_cast<IfcElement*>(product);
             IfcOpeningElement::list::ptr openings = get_related<IfcElement, IfcRelVoidsElement, IfcOpeningElement>(
-                element, &IfcElement::HasOpenings, &IfcRelVoidsElement::RelatedOpeningElement);
-    
+                element, &IfcElement::HasOpenings, &IfcRelVoidsElement::RelatedOpeningElement
+            );
+
             for (IfcOpeningElement::list::it it = openings->begin(); it != openings->end(); ++it) {
                 descend(*it, child);
             }
         }
 
 #ifndef USE_IFC4
-        IfcObjectDefinition::list::ptr structures = get_related
-            <IfcObjectDefinition, IfcRelDecomposes, IfcObjectDefinition>
-            (product, &IfcObjectDefinition::IsDecomposedBy, &IfcRelDecomposes::RelatedObjects);
+        IfcObjectDefinition::list::ptr structures = get_related<IfcObjectDefinition, IfcRelDecomposes, IfcObjectDefinition>(
+            product, &IfcObjectDefinition::IsDecomposedBy, &IfcRelDecomposes::RelatedObjects
+        );
 #else
-        IfcObjectDefinition::list::ptr structures = get_related
-            <IfcObjectDefinition, IfcRelAggregates, IfcObjectDefinition>
-            (product, &IfcProduct::IsDecomposedBy, &IfcRelAggregates::RelatedObjects);
+        IfcObjectDefinition::list::ptr structures = get_related<IfcObjectDefinition, IfcRelAggregates, IfcObjectDefinition>(
+            product, &IfcProduct::IsDecomposedBy, &IfcRelAggregates::RelatedObjects
+        );
 #endif
 
         for (IfcObjectDefinition::list::it it = structures->begin(); it != structures->end(); ++it) {
@@ -302,9 +303,9 @@ namespace {
         if (product->is(IfcSchema::Type::IfcObject)) {
             IfcSchema::IfcObject* object = product->as<IfcSchema::IfcObject>();
 
-            IfcPropertySetDefinition::list::ptr property_sets = get_related
-                <IfcObject, IfcRelDefinesByProperties, IfcPropertySetDefinition>
-                (object, &IfcObject::IsDefinedBy, &IfcRelDefinesByProperties::RelatingPropertyDefinition);
+            IfcPropertySetDefinition::list::ptr property_sets = get_related<IfcObject, IfcRelDefinesByProperties, IfcPropertySetDefinition>(
+                object, &IfcObject::IsDefinedBy, &IfcRelDefinesByProperties::RelatingPropertyDefinition
+            );
 
             for (IfcPropertySetDefinition::list::it it = property_sets->begin(); it != property_sets->end(); ++it) {
                 IfcPropertySetDefinition* pset = *it;
@@ -319,13 +320,13 @@ namespace {
             }
 
 #ifdef USE_IFC4
-            IfcTypeObject::list::ptr types = get_related
-                <IfcObject, IfcRelDefinesByType, IfcTypeObject>
-                (object, &IfcObject::IsTypedBy, &IfcRelDefinesByType::RelatingType);
+            IfcTypeObject::list::ptr types = get_related<IfcObject, IfcRelDefinesByType, IfcTypeObject>(
+                object, &IfcObject::IsTypedBy, &IfcRelDefinesByType::RelatingType
+            );
 #else
-            IfcTypeObject::list::ptr types = get_related
-                <IfcObject, IfcRelDefinesByType, IfcTypeObject>
-                (object, &IfcObject::IsDefinedBy, &IfcRelDefinesByType::RelatingType);
+            IfcTypeObject::list::ptr types = get_related<IfcObject, IfcRelDefinesByType, IfcTypeObject>(
+                object, &IfcObject::IsDefinedBy, &IfcRelDefinesByType::RelatingType
+            );
 #endif
 
             for (IfcTypeObject::list::it it = types->begin(); it != types->end(); ++it) {
