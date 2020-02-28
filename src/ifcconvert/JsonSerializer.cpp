@@ -18,8 +18,6 @@
 ********************************************************************************/
 
 #include <boost/property_tree/ptree.hpp>
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/foreach.hpp>
 
 #include "JsonSerializer.h"
 
@@ -352,72 +350,31 @@ void JsonSerializer::finalize() {
 	}
 	IfcProject* project = *projects->begin();
 
+    json jsonRoot;
 	ptree root, header, units, decomposition, properties, quantities, types, layers, materials;
 	
-	// Write the SPF header as XML nodes.
-	BOOST_FOREACH(const std::string& s, file->header().file_description().description()) {
-		header.add_child("file_description.description", ptree(s));
-	}
-	BOOST_FOREACH(const std::string& s, file->header().file_name().author()) {
-		header.add_child("file_name.author", ptree(s));
-	}
-	BOOST_FOREACH(const std::string& s, file->header().file_name().organization()) {
-		header.add_child("file_name.organization", ptree(s));
-	}
-	BOOST_FOREACH(const std::string& s, file->header().file_schema().schema_identifiers()) {
-		header.add_child("file_schema.schema_identifiers", ptree(s));
-	}
+	// Write the SPF header to JSON.
+	jsonRoot["header"]["file_description"]["description"] = file->header().file_description().description();
+	jsonRoot["header"]["file_name"]["author"] = file->header().file_name().author();
+	jsonRoot["header"]["file_name"]["organization"] = file->header().file_name().organization();
+	jsonRoot["header"]["file_schema"]["schema_identifiers"] = file->header().file_schema().schema_identifiers();
+    jsonRoot["header"]["ifc_json_version"] = JsonSerializer::IFC_JSON_VERSION;
+
 	try {
-		header.put("file_description.implementation_level", file->header().file_description().implementation_level());
+	    jsonRoot["header"]["file_description"]["implementation_level"] = file->header().file_description().implementation_level();
+        jsonRoot["header"]["file_name"]["name"] = file->header().file_name().name();
+        jsonRoot["header"]["file_name"]["time_stamp"] = file->header().file_name().time_stamp();
+        jsonRoot["header"]["file_name"]["preprocessor_version"] = file->header().file_name().preprocessor_version();
+        jsonRoot["header"]["file_name"]["originating_system"] = file->header().file_name().originating_system();
+        jsonRoot["header"]["file_name"]["authorization"] = file->header().file_name().authorization();
 	}
 	catch (const IfcParse::IfcException& ex) {
 		std::stringstream ss;
-		ss << "Failed to get ifc file header file_description implementation_level, error: '" << ex.what() << "'";
+		ss << "Failed to get ifc file header data, error: '" << ex.what() << "'";
 		Logger::Message(Logger::LOG_ERROR, ss.str());
 	}
-	try {
-		header.put("file_name.name", file->header().file_name().name());
-	}
-	catch (const IfcParse::IfcException& ex) {
-		std::stringstream ss;
-		ss << "Failed to get ifc file header file_name name, error: '" << ex.what() << "'";
-		Logger::Message(Logger::LOG_ERROR, ss.str());
-	}
-    try {
-        header.put("file_name.time_stamp", file->header().file_name().time_stamp());
-    }
-    catch (const IfcParse::IfcException& ex) {
-        std::stringstream ss;
-        ss << "Failed to get ifc file header file_name time_stamp, error: '" << ex.what() << "'";
-        Logger::Message(Logger::LOG_ERROR, ss.str());
-    }
-    try {
-        header.put("file_name.preprocessor_version", file->header().file_name().preprocessor_version());
-    }
-    catch (const IfcParse::IfcException& ex) {
-        std::stringstream ss;
-        ss << "Failed to get ifc file header file_name preprocessor_version, error: '" << ex.what() << "'";
-        Logger::Message(Logger::LOG_ERROR, ss.str());
-    }
-    try {
-        header.put("file_name.originating_system", file->header().file_name().originating_system());
-    }
-    catch (const IfcParse::IfcException& ex) {
-        std::stringstream ss;
-        ss << "Failed to get ifc file header file_name originating_system, error: '" << ex.what() << "'";
-        Logger::Message(Logger::LOG_ERROR, ss.str());
-    }
-    try {
-        header.put("file_name.authorization", file->header().file_name().authorization());
-    }
-    catch (const IfcParse::IfcException& ex) {
-        std::stringstream ss;
-        ss << "Failed to get ifc file header file_name authorization, error: '" << ex.what() << "'";
-        Logger::Message(Logger::LOG_ERROR, ss.str());
-    }
 
-    header.put("ifc_json_version", JsonSerializer::IFC_JSON_VERSION);
-
+    /*
 	// Descend into the decomposition structure of the IFC file.
 	descend(project, decomposition);
 
@@ -528,7 +485,10 @@ void JsonSerializer::finalize() {
 	root.add_child("ifc.decomposition", decomposition);
 
 	root.put("ifc.<xmlattr>.xmlns:xlink", "http://www.w3.org/1999/xlink");
+    */
 	
 	std::ofstream f(IfcUtil::path::from_utf8(json_filename).c_str());
-	boost::property_tree::write_json(f, root);
+
+	// Write prettified json to stream
+    f << std::setw(4) << jsonRoot << std::endl;
 }
