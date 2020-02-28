@@ -21,6 +21,7 @@
 #define JSONSERIALIZER_H
 
 #include "../ifcconvert/Serializer.h"
+#include "json.hpp"
 
 class JsonSerializer : public Serializer {
 private:
@@ -35,6 +36,7 @@ public:
 
 	bool ready() { return true; }
 	void writeHeader() {}
+	void writeHeader(nlohmann::json::reference& ref);
 	void finalize();
 	void setFile(IfcParse::IfcFile* f) { file = f; }
 };
