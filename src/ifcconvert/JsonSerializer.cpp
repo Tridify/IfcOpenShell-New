@@ -19,11 +19,11 @@
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
-#include <boost/version.hpp>
 #include <boost/foreach.hpp>
 
 #include "JsonSerializer.h"
 
+#include "json.hpp"
 #include "../ifcparse/IfcSIPrefix.h"
 #include "../ifcgeom/IfcGeom.h"
 #include "../ifcparse/utils.h"
@@ -33,9 +33,11 @@
 
 using boost::property_tree::ptree;
 using namespace IfcSchema;
+using json = nlohmann::json;
+
+const std::string JsonSerializer::IFC_JSON_VERSION = "1.0";
 
 namespace {
-
 std::map<std::string, std::string> argument_name_map;
 
 // Format an IFC attribute and maybe returns as string. Only literal scalar 
@@ -138,9 +140,9 @@ ptree& format_entity_instance(IfcUtil::IfcBaseEntity* instance, ptree& child, pt
 		try {
 		    instance->getArgument(i);
 		} catch (const std::exception&) {
-		    Logger::Error("Expected " + boost::lexical_cast<std::string>(n) + " attributes for:", instance->entity);
+		    Logger::Error("Expected " + std::to_string(n) + " attributes for:", instance->entity);
 		    break;
-		}		
+		}
 		const Argument* argument = instance->getArgument(i);
 		if (argument->isNull()) continue;
 
@@ -413,6 +415,8 @@ void JsonSerializer::finalize() {
         ss << "Failed to get ifc file header file_name authorization, error: '" << ex.what() << "'";
         Logger::Message(Logger::LOG_ERROR, ss.str());
     }
+
+    header.put("ifc_json_version", JsonSerializer::IFC_JSON_VERSION);
 
 	// Descend into the decomposition structure of the IFC file.
 	descend(project, decomposition);

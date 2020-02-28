@@ -26,6 +26,7 @@ class JsonSerializer : public Serializer {
 private:
 	IfcParse::IfcFile* file;
 	std::string json_filename;
+    static const std::string IFC_JSON_VERSION;
 public:
     JsonSerializer(const std::string& json_filename)
 		: Serializer()
