@@ -17,8 +17,6 @@
 *                                                                              *
 ********************************************************************************/
 
-#include <boost/property_tree/ptree.hpp>
-
 #include "JsonSerializer.h"
 
 #include "json.hpp"
@@ -28,8 +26,8 @@
 
 #include <map>
 #include <algorithm>
+#include <utility>
 
-using boost::property_tree::ptree;
 using namespace IfcSchema;
 using json = nlohmann::json;
 
@@ -159,8 +157,13 @@ namespace {
         return value;
     }
 
-    // Appends to a node with possibly existing attributes
-    json::reference& format_entity_instance(IfcUtil::IfcBaseEntity* instance, json::reference& child, json::reference& tree, bool as_link = false) {
+    // Formats IFC entity instance, adds properties to the referenced jsonObject
+    void format_entity_instance(IfcUtil::IfcBaseEntity* instance, json::reference jsonObject, bool as_link = false) {
+        if (!jsonObject.is_object() && !jsonObject.is_null()) {
+            Logger::Error("Json reference must be an object or null!", instance->entity);
+            return;
+        }
+        
         const unsigned n = instance->getArgumentCount();
 
         for (unsigned i = 0; i < n; ++i) {
@@ -202,27 +205,16 @@ namespace {
             if (value) {
                 if (as_link) {
                     if (argument_name == "id") {
-                        child["<xmlattr>.xlink:href"] = std::string("#") + *value;
+                        jsonObject["@{http://www.w3.org/1999/xlink}href"] = std::string("#") + *value;
                     }
                 }
                 else {
                     std::stringstream stream;
-                    stream << "<xmlattr>." << argument_name;
-                    child[stream.str()] = *value;
+                    stream << "@" << argument_name;
+                    jsonObject[stream.str()] = *value;
                 }
             }
         }
-
-        tree[Type::ToString(instance->type())] = child;
-
-        return tree[Type::ToString(instance->type())];
-    }
-
-    // Formats an entity instances as a ptree node, and insert into the DOM. Recurses
-    // over the entity attributes and writes them as xml attributes of the node.
-    json::reference& format_entity_instance(IfcUtil::IfcBaseEntity* instance, json::reference& tree, bool as_link = false) {
-        json::reference child;
-        return format_entity_instance(instance, child, tree, as_link);
     }
 
     std::string qualify_unrooted_instance(IfcUtil::IfcBaseClass* inst) {
@@ -232,12 +224,34 @@ namespace {
     // A function to be called recursively. Template specialization is used 
     // to descend into decomposition, containment and property relationships.
     template <typename A>
-    json::reference& descend(A* instance, json::reference& ref) {
-        if (instance->is(IfcSchema::Type::IfcObjectDefinition)) {
-            return descend(instance->template as<IfcSchema::IfcObjectDefinition>(), ref);
+    void descend(A* instance, json::reference jsonObject) {
+        if (!jsonObject.is_object() && !jsonObject.is_null()) {
+            Logger::Error("Json reference must be an object or null!", instance->entity);
+            return;
         }
+
+        // Get a json reference to the target key (IFC type name)
+        json::reference arrayReference = jsonObject[Type::ToString(instance->type())];
+
+        // Initialize the array if not done previously
+        if (arrayReference.is_null()) {
+            arrayReference = json::array();
+        }
+
+        // Add empty object to array and return its reference
+        json::reference targetObject = arrayReference += json::object();
+
+        // If the instance is an IfcObjectDefinition -> can have children -> descend deeper
+        if (instance->is(IfcSchema::Type::IfcObjectDefinition)) {
+            Logger::Message(Logger::LOG_NOTICE, "Traversing " + Type::ToString(instance->type()));
+            // Use the created empty json object as the reference
+            descend(instance->template as<IfcSchema::IfcObjectDefinition>(), targetObject);
+        }
+        // Otherwise just format the instance
         else {
-            return format_entity_instance(instance, ref);
+            Logger::Message(Logger::LOG_NOTICE, "Formatting entity instance " + Type::ToString(instance->type()));
+            // Add entity instance properties to the created empty json object
+            format_entity_instance(instance, targetObject);
         }
     }
 
@@ -259,10 +273,18 @@ namespace {
     // Descends into the tree by recursion into IfcRelContainedInSpatialStructure,
     // IfcRelDecomposes, IfcRelDefinesByType, IfcRelDefinesByProperties relations.
     template <>
-    json::reference& descend(IfcObjectDefinition* product, json::reference& ref) {
-        json::reference& child = format_entity_instance(product, ref);
+    void descend(IfcObjectDefinition* product, json::reference jsonObject) {
+        if (!jsonObject.is_object() && !jsonObject.is_null()) {
+            Logger::Error("Json reference must be an object or null!", product->entity);
+            return;
+        }
 
+        // Add entity instance properties to json object
+        format_entity_instance(product, jsonObject);
+
+        // Handle IfcSpatialStructureElement mapping
         if (product->is(Type::IfcSpatialStructureElement)) {
+            Logger::Message(Logger::LOG_NOTICE, "Handle IfcSpatialStructureElement mapping");
             IfcSpatialStructureElement* structure = (IfcSpatialStructureElement*) product;
 
             IfcObjectDefinition::list::ptr elements = get_related
@@ -270,21 +292,24 @@ namespace {
                 (structure, &IfcSpatialStructureElement::ContainsElements, &IfcRelContainedInSpatialStructure::RelatedElements);
 
             for (IfcObjectDefinition::list::it it = elements->begin(); it != elements->end(); ++it) {
-                descend(*it, child);
+                descend(*it, jsonObject);
             }
         }
 
+        // Handle IfcElement mapping
         if (product->is(Type::IfcElement)) {
+            Logger::Message(Logger::LOG_NOTICE, "Handle IfcElement mapping");
             IfcElement* element = static_cast<IfcElement*>(product);
             IfcOpeningElement::list::ptr openings = get_related<IfcElement, IfcRelVoidsElement, IfcOpeningElement>(
                 element, &IfcElement::HasOpenings, &IfcRelVoidsElement::RelatedOpeningElement
             );
 
             for (IfcOpeningElement::list::it it = openings->begin(); it != openings->end(); ++it) {
-                descend(*it, child);
+                descend(*it, jsonObject);
             }
         }
 
+        // Handle structure mapping
 #ifndef USE_IFC4
         IfcObjectDefinition::list::ptr structures = get_related<IfcObjectDefinition, IfcRelDecomposes, IfcObjectDefinition>(
             product, &IfcObjectDefinition::IsDecomposedBy, &IfcRelDecomposes::RelatedObjects
@@ -295,12 +320,15 @@ namespace {
         );
 #endif
 
+        Logger::Message(Logger::LOG_NOTICE, "Has " + std::to_string(structures->size()) + " structures -> mapping");
         for (IfcObjectDefinition::list::it it = structures->begin(); it != structures->end(); ++it) {
             IfcObjectDefinition* ob = *it;
-            descend(ob, child);
+            descend(ob, jsonObject);
         }
 
+        // Handle IfcObject mapping
         if (product->is(IfcSchema::Type::IfcObject)) {
+            Logger::Message(Logger::LOG_NOTICE, "Handle IfcObject mapping");
             IfcSchema::IfcObject* object = product->as<IfcSchema::IfcObject>();
 
             IfcPropertySetDefinition::list::ptr property_sets = get_related<IfcObject, IfcRelDefinesByProperties, IfcPropertySetDefinition>(
@@ -309,13 +337,11 @@ namespace {
 
             for (IfcPropertySetDefinition::list::it it = property_sets->begin(); it != property_sets->end(); ++it) {
                 IfcPropertySetDefinition* pset = *it;
-
                 if (pset->is(Type::IfcPropertySet)) {
-                    format_entity_instance(pset, child, true);
+                    format_entity_instance(pset, jsonObject, true);
                 }
-
                 if (pset->is(Type::IfcElementQuantity)) {
-                    format_entity_instance(pset, child, true);
+                    format_entity_instance(pset, jsonObject, true);
                 }
             }
 
@@ -331,57 +357,63 @@ namespace {
 
             for (IfcTypeObject::list::it it = types->begin(); it != types->end(); ++it) {
                 IfcTypeObject* type = *it;
-                format_entity_instance(type, child, true);
+                format_entity_instance(type, jsonObject, true);
             }
         }
 
+        // Handle IfcProduct mapping
         if (product->is(Type::IfcProduct)) {
+            Logger::Message(Logger::LOG_NOTICE, "Handle IfcProduct mapping");
             std::map<std::string, IfcPresentationLayerAssignment*> layers = IfcGeom::Kernel::get_layers(product->as<IfcProduct>());
 
+            // TODO: Put into array
             for (std::map<std::string, IfcPresentationLayerAssignment*>::const_iterator it = layers.begin(); it != layers.end(); ++it) {
                 // IfcPresentationLayerAssignments don't have GUIDs (only optional Identifier) so use name as the ID.
                 // Note that the IfcPresentationLayerAssignment passed here doesn't really matter as as_link is true
                 // for the format_entity_instance() call.
-                json::reference node;
-                node.put("<xmlattr>.xlink:href", "#" + it->first);
-                format_entity_instance(it->second, node, child, true);
+                json node = json::object();
+                node["@{http://www.w3.org/1999/xlink}href"] = "#" + it->first;
+                format_entity_instance(it->second, node, jsonObject, true);
             }
 
             IfcRelAssociates::list::ptr associations = product->HasAssociations();
 
+            // TODO: Put into array
             for (IfcRelAssociates::list::it it = associations->begin(); it != associations->end(); ++it) {
                 if ((*it)->as<IfcRelAssociatesMaterial>()) {
                     IfcMaterialSelect* mat = (*it)->as<IfcRelAssociatesMaterial>()->RelatingMaterial();
-                    json::reference node;
-                    node.put("<xmlattr>.xlink:href", "#" + qualify_unrooted_instance(mat));
-                    format_entity_instance((IfcUtil::IfcBaseEntity*) mat, node, child, true);
+                    json node = json::object();
+                    node["@{http://www.w3.org/1999/xlink}href"] = "#" + qualify_unrooted_instance(mat);
+                    format_entity_instance((IfcUtil::IfcBaseEntity*) mat, node, jsonObject, true);
                 }
             }
         }
-
-        return child;
     }
 
     // Format IfcProperty instances and insert into the DOM. IfcComplexProperties are flattened out.
-    void format_properties(IfcProperty::list::ptr properties, json::reference& node) {
+    void format_properties(const IfcProperty::list::ptr& properties, json::reference jsonObject) {
+        // TODO: Put into array
         for (IfcProperty::list::it it = properties->begin(); it != properties->end(); ++it) {
             IfcProperty* p = *it;
 
             if (p->is(Type::IfcComplexProperty)) {
                 IfcComplexProperty* complex = (IfcComplexProperty*) p;
-                format_properties(complex->HasProperties(), node);
+                format_properties(complex->HasProperties(), jsonObject);
             }
             else {
-                format_entity_instance(p, node);
+                format_entity_instance(p, jsonObject);
             }
         }
     }
 
     // Format IfcElementQuantity instances and insert into the DOM.
-    void format_quantities(IfcPhysicalQuantity::list::ptr quantities, json::reference& node) {
+    void format_quantities(const IfcPhysicalQuantity::list::ptr& quantities, json::reference jsonObject) {
+        // TODO: Put into array
         for (IfcPhysicalQuantity::list::it it = quantities->begin(); it != quantities->end(); ++it) {
             IfcPhysicalQuantity* p = *it;
-            json::reference& node2 = format_entity_instance(p, node);
+            format_entity_instance(p, jsonObject);
+
+            json node2 = json::object();
 
             if (p->is(Type::IfcPhysicalComplexQuantity)) {
                 IfcPhysicalComplexQuantity* complex = (IfcPhysicalComplexQuantity*)p;
@@ -391,7 +423,7 @@ namespace {
     }
 
     // Writes string value to json reference, if string is empty it writes nullptr
-    void add_string(json::reference& ref, std::string stringToAdd) {
+    void add_string(json::reference ref, std::string stringToAdd) {
         if (stringToAdd.length() == 0)
             ref = nullptr;
         else
@@ -399,7 +431,7 @@ namespace {
     }
 
     // Writes string vector to json reference, filters empty string values
-    void add_string_vector(json::reference& ref, const std::vector<std::string>& vectorToAdd) {
+    void add_string_vector(json::reference ref, const std::vector<std::string>& vectorToAdd) {
         ref = filter_empty_strings(vectorToAdd);
     }
     
@@ -410,7 +442,7 @@ namespace {
     }
 } // ~unnamed namespace
 
-void JsonSerializer::writeHeader(json::reference& ifc) {
+void JsonSerializer::writeHeader(json::reference ifc) {
     json::reference header = ifc["header"];
     json::reference fileDescription = header["file_description"];
     json::reference fileName = header["file_name"];
@@ -479,123 +511,15 @@ void JsonSerializer::finalize() {
 
     json jsonRoot;
     json::reference ifc = jsonRoot["ifc"];
-	
+
 	// Write the SPF header to JSON.
     writeHeader(ifc);
+
+    Logger::Message(Logger::LOG_NOTICE, "Traversing ifc['decomposition']");
 
 	// Descend into the decomposition structure of the IFC file.
 	descend(project, ifc["decomposition"]);
 
-	/*
-	// Write all property sets and values as XML nodes.
-	IfcPropertySet::list::ptr psets = file->entitiesByType<IfcPropertySet>();
-	for (IfcPropertySet::list::it it = psets->begin(); it != psets->end(); ++it) {
-		IfcPropertySet* pset = *it;
-		ptree& node = format_entity_instance(pset, properties);
-		format_properties(pset->HasProperties(), node);
-	}
-	
-	// Write all quantities and values as XML nodes.
-	IfcElementQuantity::list::ptr qtosets = file->entitiesByType<IfcElementQuantity>();
-	for (IfcElementQuantity::list::it it = qtosets->begin(); it != qtosets->end(); ++it) {
-		IfcElementQuantity* qto = *it;
-		ptree& node = format_entity_instance(qto, quantities);
-		format_quantities(qto->Quantities(), node);
-	}
-
-
-	// Write all type objects as XML nodes.
-	IfcTypeObject::list::ptr type_objects = file->entitiesByType<IfcTypeObject>();
-	for (IfcTypeObject::list::it it = type_objects->begin(); it != type_objects->end(); ++it) {
-		IfcTypeObject* type_object = *it;
-		ptree& node = descend(type_object, types);
-		// ptree& node = format_entity_instance(type_object, types);	
-		
-		if (type_object->hasHasPropertySets()) {
-			IfcPropertySetDefinition::list::ptr property_sets = type_object->HasPropertySets();
-			for (IfcPropertySetDefinition::list::it jt = property_sets->begin(); jt != property_sets->end(); ++jt) {
-				IfcPropertySetDefinition* pset = *jt;
-				if (pset->is(Type::IfcPropertySet)) {
-					format_entity_instance(pset, node, true);
-				}
-			}
-		}
-	}
-
-	// Write all assigned units as XML nodes.
-	IfcEntityList::ptr unit_assignments = project->UnitsInContext()->Units();
-	for (IfcEntityList::it it = unit_assignments->begin(); it != unit_assignments->end(); ++it) {
-		if ((*it)->is(IfcSchema::Type::IfcNamedUnit)) {
-			IfcSchema::IfcNamedUnit* named_unit = (*it)->as<IfcSchema::IfcNamedUnit>();
-			ptree& node = format_entity_instance(named_unit, units);
-			node.put("<xmlattr>.SI_equivalent", IfcParse::get_SI_equivalent(named_unit));
-		} else if ((*it)->is(IfcSchema::Type::IfcMonetaryUnit)) {
-			format_entity_instance((*it)->as<IfcSchema::IfcMonetaryUnit>(), units);
-		}
-	}
-
-    // Layer assignments. IfcPresentationLayerAssignments don't have GUIDs (only optional Identifier)
-    // so use names as the IDs and only insert those with unique names. In case of possible duplicate names/IDs
-    // the first IfcPresentationLayerAssignment occurrence takes precedence.
-    std::set<std::string> layer_names;
-    IfcPresentationLayerAssignment::list::ptr layer_assignments = file->entitiesByType<IfcPresentationLayerAssignment>();
-    for (IfcPresentationLayerAssignment::list::it it = layer_assignments->begin(); it != layer_assignments->end(); ++it) {
-        const std::string& name = (*it)->Name();
-        if (layer_names.find(name) == layer_names.end()) {
-            layer_names.insert(name);
-            ptree node;
-            node.put("<xmlattr>.id", name);
-            format_entity_instance(*it, node, layers);
-        }
-    }
-
-	IfcRelAssociatesMaterial::list::ptr materal_associations = file->entitiesByType<IfcRelAssociatesMaterial>();
-	std::set<IfcMaterialSelect*> emitted_materials;
-	for (IfcRelAssociatesMaterial::list::it it = materal_associations->begin(); it != materal_associations->end(); ++it) {
-		IfcMaterialSelect* mat = (**it).RelatingMaterial();
-		if (emitted_materials.find(mat) == emitted_materials.end()) {
-			emitted_materials.insert(mat);
-			ptree node;
-			node.put("<xmlattr>.id", qualify_unrooted_instance(mat));
-			if (mat->as<IfcMaterialLayerSetUsage>() || mat->as<IfcMaterialLayerSet>()) {				
-				IfcMaterialLayerSet* layerset = mat->as<IfcMaterialLayerSet>();
-				if (!layerset) {
-					layerset = mat->as<IfcMaterialLayerSetUsage>()->ForLayerSet();
-				}				
-				if (layerset->hasLayerSetName()) {
-					node.put("<xmlattr>.LayerSetName", layerset->LayerSetName());
-				}
-				IfcMaterialLayer::list::ptr ls = layerset->MaterialLayers();
-				for (IfcMaterialLayer::list::it jt = ls->begin(); jt != ls->end(); ++jt) {
-					ptree subnode;
-					if ((*jt)->hasMaterial()) {
-						subnode.put("<xmlattr>.Name", (*jt)->Material()->Name());
-					}
-					format_entity_instance(*jt, subnode, node);
-				}
-			} else if (mat->as<IfcMaterialList>()) {
-				IfcMaterial::list::ptr mats = mat->as<IfcMaterialList>()->Materials();
-				for (IfcMaterial::list::it jt = mats->begin(); jt != mats->end(); ++jt) {
-					ptree subnode;
-					format_entity_instance(*jt, subnode, node);
-				}
-			}
-			format_entity_instance((IfcUtil::IfcBaseEntity*) mat, node, materials);
-		}
-	}
-
-	root.add_child("ifc.header",        header);
-	root.add_child("ifc.units",         units);
-	root.add_child("ifc.properties",    properties);
-	root.add_child("ifc.quantities",    quantities);
-	root.add_child("ifc.types",         types);
-    root.add_child("ifc.layers",        layers);
-	root.add_child("ifc.materials",     materials);
-	root.add_child("ifc.decomposition", decomposition);
-
-	root.put("ifc.<xmlattr>.xmlns:xlink", "http://www.w3.org/1999/xlink");
-    */
-	
 	std::ofstream f(IfcUtil::path::from_utf8(json_filename).c_str());
 
 	// Write prettified json to stream

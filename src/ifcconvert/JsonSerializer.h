@@ -36,7 +36,7 @@ public:
 
 	bool ready() { return true; }
 	void writeHeader() {}
-	void writeHeader(nlohmann::json::reference& ref);
+	void writeHeader(nlohmann::json::reference ref);
 	void finalize();
 	void setFile(IfcParse::IfcFile* f) { file = f; }
 };
