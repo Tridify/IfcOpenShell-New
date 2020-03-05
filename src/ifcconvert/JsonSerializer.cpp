@@ -31,7 +31,8 @@
 using namespace IfcSchema;
 using json = nlohmann::json;
 
-const std::string JsonSerializer::IFC_JSON_VERSION = "1.0";
+// The ifc json version written to the exported json file
+#define IFC_JSON_VERSION "1.0"
 
 // Utils
 namespace {
@@ -159,8 +160,8 @@ namespace {
 
     // Formats IFC entity instance, adds properties to the referenced jsonObject
     void format_entity_instance(IfcUtil::IfcBaseEntity* instance, json::reference jsonObject, bool as_link = false) {
-        if (!jsonObject.is_object() && !jsonObject.is_null()) {
-            Logger::Error("Json reference must be an object or null!", instance->entity);
+        if (!jsonObject.is_object()) {
+            Logger::Error("Json reference must be an object!", instance->entity);
             return;
         }
         
@@ -221,6 +222,22 @@ namespace {
         return IfcSchema::Type::ToString(inst->type()) + "_" + std::to_string(inst->entity->id());
     }
 
+    // Initializes an array in a jsonObject with jsonKey, creates an empty object to that array and returns the reference
+    json::reference getEmptyObjectReferenceInArray(const std::string& jsonKey, json::reference jsonObject) {
+        // Get a json reference to the target jsonKey
+        json::reference arrayReference = jsonObject[jsonKey];
+
+        // Initialize the array if not done previously
+        if (arrayReference.is_null()) {
+            Logger::Message(Logger::LOG_NOTICE, "No containing array created yet for key " + jsonKey + ", creating...");
+            arrayReference = json::array();
+        }
+
+        // Add empty object to array and return its reference
+        arrayReference += json::object();
+        return arrayReference.back();
+    }
+
     // A function to be called recursively. Template specialization is used 
     // to descend into decomposition, containment and property relationships.
     template <typename A>
@@ -230,26 +247,19 @@ namespace {
             return;
         }
 
-        // Get a json reference to the target key (IFC type name)
-        json::reference arrayReference = jsonObject[Type::ToString(instance->type())];
-
-        // Initialize the array if not done previously
-        if (arrayReference.is_null()) {
-            arrayReference = json::array();
-        }
-
-        // Add empty object to array and return its reference
-        json::reference targetObject = arrayReference += json::object();
-
         // If the instance is an IfcObjectDefinition -> can have children -> descend deeper
         if (instance->is(IfcSchema::Type::IfcObjectDefinition)) {
             Logger::Message(Logger::LOG_NOTICE, "Traversing " + Type::ToString(instance->type()));
             // Use the created empty json object as the reference
-            descend(instance->template as<IfcSchema::IfcObjectDefinition>(), targetObject);
+            descend(instance->template as<IfcSchema::IfcObjectDefinition>(), jsonObject);
         }
         // Otherwise just format the instance
         else {
-            Logger::Message(Logger::LOG_NOTICE, "Formatting entity instance " + Type::ToString(instance->type()));
+            // Initialize a container array for the IFC type if not created yet
+            // add an empty object to that array and get the reference
+            json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(instance->type()), jsonObject);
+            
+            Logger::Message(Logger::LOG_NOTICE, "Not an object definition -> Formatting entity instance " + Type::ToString(instance->type()));
             // Add entity instance properties to the created empty json object
             format_entity_instance(instance, targetObject);
         }
@@ -279,8 +289,12 @@ namespace {
             return;
         }
 
+        // Initialize a container array for the IFC type if not created yet
+        // add an empty object to that array and get the reference
+        json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(product->type()), jsonObject);
+
         // Add entity instance properties to json object
-        format_entity_instance(product, jsonObject);
+        format_entity_instance(product, targetObject);
 
         // Handle IfcSpatialStructureElement mapping
         if (product->is(Type::IfcSpatialStructureElement)) {
@@ -292,7 +306,7 @@ namespace {
                 (structure, &IfcSpatialStructureElement::ContainsElements, &IfcRelContainedInSpatialStructure::RelatedElements);
 
             for (IfcObjectDefinition::list::it it = elements->begin(); it != elements->end(); ++it) {
-                descend(*it, jsonObject);
+                descend(*it, targetObject);
             }
         }
 
@@ -305,7 +319,7 @@ namespace {
             );
 
             for (IfcOpeningElement::list::it it = openings->begin(); it != openings->end(); ++it) {
-                descend(*it, jsonObject);
+                descend(*it, targetObject);
             }
         }
 
@@ -323,7 +337,7 @@ namespace {
         Logger::Message(Logger::LOG_NOTICE, "Has " + std::to_string(structures->size()) + " structures -> mapping");
         for (IfcObjectDefinition::list::it it = structures->begin(); it != structures->end(); ++it) {
             IfcObjectDefinition* ob = *it;
-            descend(ob, jsonObject);
+            descend(ob, targetObject);
         }
 
         // Handle IfcObject mapping
@@ -337,11 +351,14 @@ namespace {
 
             for (IfcPropertySetDefinition::list::it it = property_sets->begin(); it != property_sets->end(); ++it) {
                 IfcPropertySetDefinition* pset = *it;
+
+                json::reference to = getEmptyObjectReferenceInArray(Type::ToString(pset->type()), targetObject);
+                
                 if (pset->is(Type::IfcPropertySet)) {
-                    format_entity_instance(pset, jsonObject, true);
+                    format_entity_instance(pset, to, true);
                 }
                 if (pset->is(Type::IfcElementQuantity)) {
-                    format_entity_instance(pset, jsonObject, true);
+                    format_entity_instance(pset, to, true);
                 }
             }
 
@@ -357,7 +374,9 @@ namespace {
 
             for (IfcTypeObject::list::it it = types->begin(); it != types->end(); ++it) {
                 IfcTypeObject* type = *it;
-                format_entity_instance(type, jsonObject, true);
+
+                json::reference to = getEmptyObjectReferenceInArray(Type::ToString(type->type()), targetObject);
+                format_entity_instance(type, to, true);
             }
         }
 
@@ -366,25 +385,25 @@ namespace {
             Logger::Message(Logger::LOG_NOTICE, "Handle IfcProduct mapping");
             std::map<std::string, IfcPresentationLayerAssignment*> layers = IfcGeom::Kernel::get_layers(product->as<IfcProduct>());
 
-            // TODO: Put into array
             for (std::map<std::string, IfcPresentationLayerAssignment*>::const_iterator it = layers.begin(); it != layers.end(); ++it) {
                 // IfcPresentationLayerAssignments don't have GUIDs (only optional Identifier) so use name as the ID.
-                // Note that the IfcPresentationLayerAssignment passed here doesn't really matter as as_link is true
-                // for the format_entity_instance() call.
-                json node = json::object();
-                node["@{http://www.w3.org/1999/xlink}href"] = "#" + it->first;
-                format_entity_instance(it->second, node, jsonObject, true);
+                // Note that the IfcPresentationLayerAssignment passed here doesn't really matter as as_link is true for the format_entity_instance() call.
+                json::reference to = getEmptyObjectReferenceInArray(Type::ToString(it->second->type()), targetObject);
+                
+                to["@{http://www.w3.org/1999/xlink}href"] = "#" + it->first;
+                format_entity_instance(it->second, to, true);
             }
 
             IfcRelAssociates::list::ptr associations = product->HasAssociations();
 
-            // TODO: Put into array
             for (IfcRelAssociates::list::it it = associations->begin(); it != associations->end(); ++it) {
                 if ((*it)->as<IfcRelAssociatesMaterial>()) {
                     IfcMaterialSelect* mat = (*it)->as<IfcRelAssociatesMaterial>()->RelatingMaterial();
-                    json node = json::object();
-                    node["@{http://www.w3.org/1999/xlink}href"] = "#" + qualify_unrooted_instance(mat);
-                    format_entity_instance((IfcUtil::IfcBaseEntity*) mat, node, jsonObject, true);
+
+                    json::reference to = getEmptyObjectReferenceInArray(Type::ToString(((IfcUtil::IfcBaseEntity*) mat)->type()), targetObject);
+
+                    to["@{http://www.w3.org/1999/xlink}href"] = "#" + qualify_unrooted_instance(mat);
+                    format_entity_instance((IfcUtil::IfcBaseEntity*) mat, to, true);
                 }
             }
         }
@@ -392,32 +411,33 @@ namespace {
 
     // Format IfcProperty instances and insert into the DOM. IfcComplexProperties are flattened out.
     void format_properties(const IfcProperty::list::ptr& properties, json::reference jsonObject) {
-        // TODO: Put into array
         for (IfcProperty::list::it it = properties->begin(); it != properties->end(); ++it) {
             IfcProperty* p = *it;
 
+            json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(p->type()), jsonObject);
+
             if (p->is(Type::IfcComplexProperty)) {
                 IfcComplexProperty* complex = (IfcComplexProperty*) p;
-                format_properties(complex->HasProperties(), jsonObject);
+                format_properties(complex->HasProperties(), targetObject);
             }
             else {
-                format_entity_instance(p, jsonObject);
+                format_entity_instance(p, targetObject);
             }
         }
     }
 
     // Format IfcElementQuantity instances and insert into the DOM.
     void format_quantities(const IfcPhysicalQuantity::list::ptr& quantities, json::reference jsonObject) {
-        // TODO: Put into array
         for (IfcPhysicalQuantity::list::it it = quantities->begin(); it != quantities->end(); ++it) {
             IfcPhysicalQuantity* p = *it;
-            format_entity_instance(p, jsonObject);
 
-            json node2 = json::object();
+            json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(p->type()), jsonObject);
+            
+            format_entity_instance(p, targetObject);
 
             if (p->is(Type::IfcPhysicalComplexQuantity)) {
                 IfcPhysicalComplexQuantity* complex = (IfcPhysicalComplexQuantity*)p;
-                format_quantities(complex->HasQuantities(), node2);
+                format_quantities(complex->HasQuantities(), targetObject);
             }
         }
     }
@@ -496,7 +516,7 @@ void JsonSerializer::writeHeader(json::reference ifc) {
         log_error(ex.what());
     }
 
-    add_string(ifcJsonVersion, JsonSerializer::IFC_JSON_VERSION);
+    add_string(ifcJsonVersion, IFC_JSON_VERSION);
 }
 
 void JsonSerializer::finalize() {
