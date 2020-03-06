@@ -532,13 +532,149 @@ void JsonSerializer::finalize() {
     json jsonRoot;
     json::reference ifc = jsonRoot["ifc"];
 
-	// Write the SPF header to JSON.
+	// Write the SPF header
     writeHeader(ifc);
 
-    Logger::Message(Logger::LOG_NOTICE, "Traversing ifc['decomposition']");
-
-	// Descend into the decomposition structure of the IFC file.
+	// Write the decomposition
 	descend(project, ifc["decomposition"]);
+
+    // Write all property sets and values
+    IfcPropertySet::list::ptr psets = file->entitiesByType<IfcPropertySet>();
+    json::reference properties = ifc["properties"];
+
+    for (IfcPropertySet::list::it it = psets->begin(); it != psets->end(); ++it) {
+        IfcPropertySet* pset = *it;
+
+        json::reference propertyObject = getEmptyObjectReferenceInArray(Type::ToString(pset->type()), properties);
+        
+        format_entity_instance(pset, propertyObject);
+        format_properties(pset->HasProperties(), propertyObject);
+    }
+
+    // Write all quantities and values
+    IfcElementQuantity::list::ptr qtosets = file->entitiesByType<IfcElementQuantity>();
+    json::reference quantities = ifc["quantities"];
+
+    for (IfcElementQuantity::list::it it = qtosets->begin(); it != qtosets->end(); ++it) {
+        IfcElementQuantity* qto = *it;
+
+        json::reference quantityObject = getEmptyObjectReferenceInArray(Type::ToString(qto->type()), quantities);
+
+        format_entity_instance(qto, quantityObject);
+        format_quantities(qto->Quantities(), quantityObject);
+    }
+
+    // Write all type objects
+    IfcTypeObject::list::ptr type_objects = file->entitiesByType<IfcTypeObject>();
+    json::reference types = ifc["types"];
+
+    for (IfcTypeObject::list::it it = type_objects->begin(); it != type_objects->end(); ++it) {
+        IfcTypeObject* type_object = *it;
+
+        descend(type_object, types);
+
+        if (type_object->hasHasPropertySets()) {
+            IfcPropertySetDefinition::list::ptr property_sets = type_object->HasPropertySets();
+
+            for (IfcPropertySetDefinition::list::it jt = property_sets->begin(); jt != property_sets->end(); ++jt) {
+                IfcPropertySetDefinition* pset = *jt;
+
+                if (pset->is(Type::IfcPropertySet)) {
+                    format_entity_instance(pset, types, true);
+                }
+            }
+        }
+    }
+
+    // Write all assigned units
+    IfcEntityList::ptr unit_assignments = project->UnitsInContext()->Units();
+    json::reference units = ifc["units"];
+
+    for (IfcEntityList::it it = unit_assignments->begin(); it != unit_assignments->end(); ++it) {
+        json::reference unitObject = getEmptyObjectReferenceInArray(Type::ToString((*it)->type()), units);
+
+        if ((*it)->is(IfcSchema::Type::IfcNamedUnit)) {
+            IfcSchema::IfcNamedUnit* named_unit = (*it)->as<IfcSchema::IfcNamedUnit>();
+
+            format_entity_instance(named_unit, unitObject);
+            unitObject["@SI_equivalent"] = IfcParse::get_SI_equivalent(named_unit);
+        }
+        else if ((*it)->is(IfcSchema::Type::IfcMonetaryUnit)) {
+            format_entity_instance((*it)->as<IfcSchema::IfcMonetaryUnit>(), unitObject);
+        }
+    }
+
+    // Write presentation layers 
+    // IfcPresentationLayerAssignments don't have GUIDs (only optional Identifier)
+    // so use names as the IDs and only insert those with unique names. In case of possible duplicate names/IDs
+    // the first IfcPresentationLayerAssignment occurrence takes precedence.
+    std::set<std::string> layer_names;
+    IfcPresentationLayerAssignment::list::ptr layer_assignments = file->entitiesByType<IfcPresentationLayerAssignment>();
+    json::reference layers = ifc["layers"];
+
+    for (IfcPresentationLayerAssignment::list::it it = layer_assignments->begin(); it != layer_assignments->end(); ++it) {
+        const std::string& name = (*it)->Name();
+
+        if (layer_names.find(name) == layer_names.end()) {
+            layer_names.insert(name);
+
+            json::reference layerObject = getEmptyObjectReferenceInArray(Type::ToString((*it)->type()), layers);
+            layerObject["@id"] = name;
+            format_entity_instance(*it, layerObject);
+        }
+    }
+    
+    // Write materials
+    IfcRelAssociatesMaterial::list::ptr materal_associations = file->entitiesByType<IfcRelAssociatesMaterial>();
+    std::set<IfcMaterialSelect*> emitted_materials;
+    json::reference materials = ifc["materials"];
+
+    for (IfcRelAssociatesMaterial::list::it it = materal_associations->begin(); it != materal_associations->end(); ++it) {
+        IfcMaterialSelect* mat = (**it).RelatingMaterial();
+        if (emitted_materials.find(mat) == emitted_materials.end()) {
+            emitted_materials.insert(mat);
+
+            json::reference materialObject = getEmptyObjectReferenceInArray(Type::ToString((*it)->type()), materials);
+            materialObject["@id"] = qualify_unrooted_instance(mat);
+
+            // Write IfcMaterialLayerSetUsage
+            if (mat->as<IfcMaterialLayerSetUsage>() || mat->as<IfcMaterialLayerSet>()) {
+                IfcMaterialLayerSet* layerset = mat->as<IfcMaterialLayerSet>();
+
+                if (!layerset) {
+                    layerset = mat->as<IfcMaterialLayerSetUsage>()->ForLayerSet();
+                }
+
+                if (layerset->hasLayerSetName()) {
+                    materialObject["@LayerSetName"] = layerset->LayerSetName();
+                }
+
+                IfcMaterialLayer::list::ptr ls = layerset->MaterialLayers();
+
+                for (IfcMaterialLayer::list::it jt = ls->begin(); jt != ls->end(); ++jt) {
+                    json::reference subMaterialObject = getEmptyObjectReferenceInArray(Type::ToString((*jt)->type()), materialObject);
+                    
+                    if ((*jt)->hasMaterial()) {
+                        subMaterialObject["@Name"] = (*jt)->Material()->Name();
+                    }
+                    
+                    format_entity_instance(*jt, subMaterialObject);
+                }
+            }
+            // write IfcMaterialList
+            else if (mat->as<IfcMaterialList>()) {
+                IfcMaterial::list::ptr mats = mat->as<IfcMaterialList>()->Materials();
+                
+                for (IfcMaterial::list::it jt = mats->begin(); jt != mats->end(); ++jt) {
+                    json::reference subMaterialObject = getEmptyObjectReferenceInArray(Type::ToString((*jt)->type()), materialObject);
+
+                    format_entity_instance(*jt, subMaterialObject);
+                }
+            }
+            
+            format_entity_instance((IfcUtil::IfcBaseEntity*) mat, materialObject);
+        }
+    }
 
 	std::ofstream f(IfcUtil::path::from_utf8(json_filename).c_str());
 
