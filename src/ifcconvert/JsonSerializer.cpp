@@ -229,7 +229,6 @@ namespace {
 
         // Initialize the array if not done previously
         if (arrayReference.is_null()) {
-            Logger::Message(Logger::LOG_NOTICE, "No containing array created yet for key " + jsonKey + ", creating...");
             arrayReference = json::array();
         }
 
@@ -249,7 +248,6 @@ namespace {
 
         // If the instance is an IfcObjectDefinition -> can have children -> descend deeper
         if (instance->is(IfcSchema::Type::IfcObjectDefinition)) {
-            Logger::Message(Logger::LOG_NOTICE, "Traversing " + Type::ToString(instance->type()));
             // Use the created empty json object as the reference
             descend(instance->template as<IfcSchema::IfcObjectDefinition>(), jsonObject);
         }
@@ -258,8 +256,7 @@ namespace {
             // Initialize a container array for the IFC type if not created yet
             // add an empty object to that array and get the reference
             json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(instance->type()), jsonObject);
-            
-            Logger::Message(Logger::LOG_NOTICE, "Not an object definition -> Formatting entity instance " + Type::ToString(instance->type()));
+
             // Add entity instance properties to the created empty json object
             format_entity_instance(instance, targetObject);
         }
@@ -298,7 +295,6 @@ namespace {
 
         // Handle IfcSpatialStructureElement mapping
         if (product->is(Type::IfcSpatialStructureElement)) {
-            Logger::Message(Logger::LOG_NOTICE, "Handle IfcSpatialStructureElement mapping");
             IfcSpatialStructureElement* structure = (IfcSpatialStructureElement*) product;
 
             IfcObjectDefinition::list::ptr elements = get_related
@@ -312,7 +308,6 @@ namespace {
 
         // Handle IfcElement mapping
         if (product->is(Type::IfcElement)) {
-            Logger::Message(Logger::LOG_NOTICE, "Handle IfcElement mapping");
             IfcElement* element = static_cast<IfcElement*>(product);
             IfcOpeningElement::list::ptr openings = get_related<IfcElement, IfcRelVoidsElement, IfcOpeningElement>(
                 element, &IfcElement::HasOpenings, &IfcRelVoidsElement::RelatedOpeningElement
@@ -334,7 +329,6 @@ namespace {
         );
 #endif
 
-        Logger::Message(Logger::LOG_NOTICE, "Has " + std::to_string(structures->size()) + " structures -> mapping");
         for (IfcObjectDefinition::list::it it = structures->begin(); it != structures->end(); ++it) {
             IfcObjectDefinition* ob = *it;
             descend(ob, targetObject);
@@ -342,7 +336,6 @@ namespace {
 
         // Handle IfcObject mapping
         if (product->is(IfcSchema::Type::IfcObject)) {
-            Logger::Message(Logger::LOG_NOTICE, "Handle IfcObject mapping");
             IfcSchema::IfcObject* object = product->as<IfcSchema::IfcObject>();
 
             IfcPropertySetDefinition::list::ptr property_sets = get_related<IfcObject, IfcRelDefinesByProperties, IfcPropertySetDefinition>(
@@ -382,7 +375,6 @@ namespace {
 
         // Handle IfcProduct mapping
         if (product->is(Type::IfcProduct)) {
-            Logger::Message(Logger::LOG_NOTICE, "Handle IfcProduct mapping");
             std::map<std::string, IfcPresentationLayerAssignment*> layers = IfcGeom::Kernel::get_layers(product->as<IfcProduct>());
 
             for (std::map<std::string, IfcPresentationLayerAssignment*>::const_iterator it = layers.begin(); it != layers.end(); ++it) {
@@ -625,25 +617,27 @@ void JsonSerializer::finalize() {
     }
     
     // Write materials
-    IfcRelAssociatesMaterial::list::ptr materal_associations = file->entitiesByType<IfcRelAssociatesMaterial>();
+    IfcRelAssociatesMaterial::list::ptr material_associations = file->entitiesByType<IfcRelAssociatesMaterial>();
     std::set<IfcMaterialSelect*> emitted_materials;
     json::reference materials = ifc["materials"];
 
-    for (IfcRelAssociatesMaterial::list::it it = materal_associations->begin(); it != materal_associations->end(); ++it) {
+    for (IfcRelAssociatesMaterial::list::it it = material_associations->begin(); it != material_associations->end(); ++it) {
         IfcMaterialSelect* mat = (**it).RelatingMaterial();
         if (emitted_materials.find(mat) == emitted_materials.end()) {
             emitted_materials.insert(mat);
 
-            json::reference materialObject = getEmptyObjectReferenceInArray(Type::ToString((*it)->type()), materials);
-            materialObject["@id"] = qualify_unrooted_instance(mat);
-
-            // Write IfcMaterialLayerSetUsage
+            // Write IfcMaterialLayerSetUsage / IfcMaterialLayerSet
             if (mat->as<IfcMaterialLayerSetUsage>() || mat->as<IfcMaterialLayerSet>()) {
                 IfcMaterialLayerSet* layerset = mat->as<IfcMaterialLayerSet>();
+                std::string materialJsonKey = "IfcMaterialLayerSet";
 
                 if (!layerset) {
+                    materialJsonKey = "IfcMaterialLayerSetUsage";
                     layerset = mat->as<IfcMaterialLayerSetUsage>()->ForLayerSet();
                 }
+
+                json::reference materialObject = getEmptyObjectReferenceInArray(materialJsonKey, materials);
+                materialObject["@id"] = qualify_unrooted_instance(mat);
 
                 if (layerset->hasLayerSetName()) {
                     materialObject["@LayerSetName"] = layerset->LayerSetName();
@@ -660,19 +654,31 @@ void JsonSerializer::finalize() {
                     
                     format_entity_instance(*jt, subMaterialObject);
                 }
+
+                format_entity_instance((IfcUtil::IfcBaseEntity*) mat, materialObject);
             }
             // write IfcMaterialList
             else if (mat->as<IfcMaterialList>()) {
                 IfcMaterial::list::ptr mats = mat->as<IfcMaterialList>()->Materials();
-                
+
+                json::reference materialObject = getEmptyObjectReferenceInArray("IfcMaterialList", materials);
+                materialObject["@id"] = qualify_unrooted_instance(mat);
+
                 for (IfcMaterial::list::it jt = mats->begin(); jt != mats->end(); ++jt) {
                     json::reference subMaterialObject = getEmptyObjectReferenceInArray(Type::ToString((*jt)->type()), materialObject);
 
                     format_entity_instance(*jt, subMaterialObject);
                 }
+
+                format_entity_instance((IfcUtil::IfcBaseEntity*) mat, materialObject);
             }
-            
-            format_entity_instance((IfcUtil::IfcBaseEntity*) mat, materialObject);
+            // write IfcMaterial
+            else if (mat->as<IfcMaterial>()) {
+                json::reference materialObject = getEmptyObjectReferenceInArray("IfcMaterial", materials);
+                materialObject["@id"] = qualify_unrooted_instance(mat);
+
+                format_entity_instance((IfcUtil::IfcBaseEntity*) mat, materialObject);
+            }
         }
     }
 
