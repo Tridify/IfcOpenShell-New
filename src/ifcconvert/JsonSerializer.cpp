@@ -333,6 +333,25 @@ namespace {
             IfcObjectDefinition* ob = *it;
             descend(ob, targetObject);
         }
+        
+        // Handle IfcTypeObject mapping
+        if (product->is(Type::IfcTypeObject)) {
+            IfcTypeObject* type_object = product->as<IfcTypeObject>();
+            
+            if (type_object->hasHasPropertySets()) {
+                IfcPropertySetDefinition::list::ptr property_sets = type_object->HasPropertySets();
+
+                for (IfcPropertySetDefinition::list::it jt = property_sets->begin(); jt != property_sets->end(); ++jt) {
+                    IfcPropertySetDefinition* pset = *jt;
+
+                    if (pset->is(Type::IfcPropertySet)) {
+                        json::reference propertyObject = getEmptyObjectReferenceInArray("IfcPropertySet", targetObject);
+
+                        format_entity_instance(pset, propertyObject, true);
+                    }
+                }
+            }
+        }
 
         // Handle IfcObject mapping
         if (product->is(IfcSchema::Type::IfcObject)) {
@@ -564,18 +583,6 @@ void JsonSerializer::finalize() {
         IfcTypeObject* type_object = *it;
 
         descend(type_object, types);
-
-        if (type_object->hasHasPropertySets()) {
-            IfcPropertySetDefinition::list::ptr property_sets = type_object->HasPropertySets();
-
-            for (IfcPropertySetDefinition::list::it jt = property_sets->begin(); jt != property_sets->end(); ++jt) {
-                IfcPropertySetDefinition* pset = *jt;
-
-                if (pset->is(Type::IfcPropertySet)) {
-                    format_entity_instance(pset, types, true);
-                }
-            }
-        }
     }
 
     // Write all assigned units
