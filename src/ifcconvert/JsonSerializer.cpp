@@ -690,6 +690,6 @@ void JsonSerializer::finalize() {
 
 	std::ofstream f(IfcUtil::path::from_utf8(json_filename).c_str());
 
-	// Write prettified json to stream
-    f << std::setw(4) << jsonRoot << std::endl;
+	// Write json to stream
+    f << jsonRoot << std::endl;
 }
