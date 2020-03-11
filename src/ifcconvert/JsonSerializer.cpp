@@ -425,13 +425,12 @@ namespace {
         for (IfcProperty::list::it it = properties->begin(); it != properties->end(); ++it) {
             IfcProperty* p = *it;
 
-            json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(p->type()), jsonObject);
-
             if (p->is(Type::IfcComplexProperty)) {
                 IfcComplexProperty* complex = (IfcComplexProperty*) p;
-                format_properties(complex->HasProperties(), targetObject);
+                format_properties(complex->HasProperties(), jsonObject);
             }
             else {
+                json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(p->type()), jsonObject);
                 format_entity_instance(p, targetObject);
             }
         }
