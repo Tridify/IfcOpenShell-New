@@ -31,6 +31,7 @@
 #include "../ifcconvert/StepSerializer.h"
 #include "../ifcconvert/WavefrontObjSerializer.h"
 #include "../ifcconvert/XmlSerializer.h"
+#include "../ifcconvert/JsonSerializer.h"
 #include "../ifcconvert/SvgSerializer.h"
 
 #include "../ifcgeom/IfcGeomIterator.h"
@@ -91,7 +92,8 @@ void print_usage(bool suggest_help = true)
 #endif
         << "  .stp   STEP           Standard for the Exchange of Product Data\n"
         << "  .igs   IGES           Initial Graphics Exchange Specification\n"
-        << "  .xml   XML            Property definitions and decomposition tree\n"
+        << "  .xml   XML            Property definitions and decomposition tree in XML\n"
+        << "  .json  JSON           Property definitions and decomposition tree in JSON\n"
         << "  .svg   SVG            Scalable Vector Graphics (2D floor plan)\n"
         << "\n"
         << "If no output filename given, <input>" << IfcUtil::path::from_utf8(DEFAULT_EXTENSION) << " will be used as the output file.\n";
@@ -522,7 +524,8 @@ int main(int argc, char** argv) {
 		STP = IfcUtil::path::from_utf8(".stp"),
 		IGS = IfcUtil::path::from_utf8(".igs"),
 		SVG = IfcUtil::path::from_utf8(".svg"),
-		XML = IfcUtil::path::from_utf8(".xml");
+		XML = IfcUtil::path::from_utf8(".xml"),
+        JSON = IfcUtil::path::from_utf8("json"); // getting output_extension gets only 4 last characters :P
 
     if (output_extension == XML) {
         int exit_code = EXIT_FAILURE;
@@ -543,6 +546,29 @@ int main(int argc, char** argv) {
         } catch (const std::exception& e) {
 			Logger::Error(e);
 		}
+        write_log(!quiet);
+        return exit_code;
+    }
+
+    if (output_extension == JSON) {
+        int exit_code = EXIT_FAILURE;
+        try {
+            if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
+                time_t start, end;
+                time(&start);
+                JsonSerializer s(IfcUtil::path::to_utf8(output_temp_filename));
+                s.setFile(&ifc_file);
+                Logger::Status("Writing JSON output...");
+                s.finalize();
+                time(&end);
+                Logger::Status("Done! Conversion took " +  format_duration(start, end));
+
+                IfcUtil::path::rename_file(IfcUtil::path::to_utf8(output_temp_filename), IfcUtil::path::to_utf8(output_filename));
+                exit_code = EXIT_SUCCESS;
+            }
+        } catch (const std::exception& e) {
+            Logger::Error(e);
+        }
         write_log(!quiet);
         return exit_code;
     }
