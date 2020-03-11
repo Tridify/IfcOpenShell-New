@@ -484,6 +484,7 @@ void JsonSerializer::writeHeader(json::reference ifc) {
     add_string_vector(fileName["organization"], file->header().file_name().organization());
     add_string_vector(fileSchema["schema_identifiers"], file->header().file_schema().schema_identifiers());
 
+    // TODO: Refactor to reduce repeated code
     try {
         add_string(fileDescription["implementation_level"], file->header().file_description().implementation_level());
     }
