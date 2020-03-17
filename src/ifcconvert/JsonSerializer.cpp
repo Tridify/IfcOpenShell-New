@@ -255,7 +255,9 @@ namespace {
         else {
             // Initialize a container array for the IFC type if not created yet
             // add an empty object to that array and get the reference
-            json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(instance->type()), jsonObject);
+            json::reference targetObject = instance->is(Type::IfcProject) ?
+                jsonObject["IfcProject"] :
+                getEmptyObjectReferenceInArray(Type::ToString(instance->type()), jsonObject);
 
             // Add entity instance properties to the created empty json object
             format_entity_instance(instance, targetObject);
@@ -288,7 +290,14 @@ namespace {
 
         // Initialize a container array for the IFC type if not created yet
         // add an empty object to that array and get the reference
-        json::reference targetObject = getEmptyObjectReferenceInArray(Type::ToString(product->type()), jsonObject);
+        // There can be only one IfcProject so do not create an array of it
+        
+        const std::string& productType = Type::ToString(product->type());
+        bool isProject = productType == "IfcProject";
+        
+        json::reference targetObject = isProject ?
+            jsonObject["IfcProject"] :
+            getEmptyObjectReferenceInArray(productType, jsonObject);
 
         // Add entity instance properties to json object
         format_entity_instance(product, targetObject);
