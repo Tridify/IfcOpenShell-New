@@ -20,8 +20,10 @@
 #ifndef JSONSERIALIZER_H
 #define JSONSERIALIZER_H
 
-#include "../ifcconvert/Serializer.h"
-#include "json.hpp"
+#include "../serializers/Serializer.h"
+
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
 
 class JsonSerializer : public Serializer {
 private:
