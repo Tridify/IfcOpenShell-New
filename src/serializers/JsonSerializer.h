@@ -1,45 +1,39 @@
-/********************************************************************************
- *                                                                              *
- * This file is part of IfcOpenShell.                                           *
- *                                                                              *
- * IfcOpenShell is free software: you can redistribute it and/or modify         *
- * it under the terms of the Lesser GNU General Public License as published by  *
- * the Free Software Foundation, either version 3.0 of the License, or          *
- * (at your option) any later version.                                          *
- *                                                                              *
- * IfcOpenShell is distributed in the hope that it will be useful,              *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of               *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the                 *
- * Lesser GNU General Public License for more details.                          *
- *                                                                              *
- * You should have received a copy of the Lesser GNU General Public License     *
- * along with this program. If not, see <http://www.gnu.org/licenses/>.         *
- *                                                                              *
- ********************************************************************************/
-
-#ifndef JSONSERIALIZER_H
-#define JSONSERIALIZER_H
+#define SCHEMA_METHOD
 
 #include "../serializers/Serializer.h"
+#include "../ifcparse/IfcFile.h"
 
-#include <nlohmann/json.hpp>
-using json = nlohmann::json;
+#include <boost/function.hpp>
+
+#include <map>
 
 class JsonSerializer : public Serializer {
 private:
-	IfcParse::IfcFile* file;
+	JsonSerializer* implementation_;
+
+protected:
 	std::string json_filename;
+
 public:
-    JsonSerializer(const std::string& json_filename)
-		: Serializer()
-		, json_filename(json_filename)
-	{}
+	JsonSerializer(IfcParse::IfcFile* file, const std::string& json_filename);
+
+	virtual ~JsonSerializer() {}
 
 	bool ready() { return true; }
-	void writeHeader() {}
-	void writeHeader(nlohmann::json::reference ref);
-	void finalize();
-	void setFile(IfcParse::IfcFile* f) { file = f; }
+
+	void finalize() { implementation_->finalize(); }
+	void setFile(IfcParse::IfcFile*) { throw IfcParse::IfcException("Should be supplied on construction"); }
 };
 
-#endif
+struct JsonSerializerFactory {
+	typedef boost::function2<JsonSerializer*, IfcParse::IfcFile*, std::string> fn;
+
+	class Factory : public std::map<std::string, fn> {
+	public:
+		Factory();
+		void bind(const std::string& schema_name, fn);
+		JsonSerializer* construct(const std::string& schema_name, IfcParse::IfcFile*, std::string);
+	};
+
+	static Factory& implementations();
+};
