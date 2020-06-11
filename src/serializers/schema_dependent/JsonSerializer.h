@@ -20,31 +20,29 @@
 #ifndef JSONSERIALIZERIMPL_H
 #define JSONSERIALIZERIMPL_H
 
+#include <nlohmann/json.hpp>
 #include "../../ifcparse/macros.h"
 #include "../../serializers/JsonSerializer.h"
 
 #define INCLUDE_PARENT_PARENT_DIR(x) STRINGIFY(../../ifcparse/x.h)
 #include INCLUDE_PARENT_PARENT_DIR(IfcSchema)
 
-#include <nlohmann/json.hpp>
-using json = nlohmann::json;
-
 class MAKE_TYPE_NAME(JsonSerializer) : public JsonSerializer {
 private:
-    IfcParse::IfcFile* file;
+	IfcParse::IfcFile* file;
 
 public:
-    MAKE_TYPE_NAME(JsonSerializer)(IfcParse::IfcFile* file, const std::string& json_filename)
-            : JsonSerializer(0, "")
-    {
-        this->file = file;
-        this->json_filename = json_filename;
-    }
+	MAKE_TYPE_NAME(JsonSerializer)(IfcParse::IfcFile* file, const std::string& json_filename)
+		: JsonSerializer(0, "")
+	{
+		this->file = file;
+		this->json_filename = json_filename;
+	}
 
-    void writeHeader() {}
-    void writeHeader(nlohmann::json::reference ref);
-    void finalize();
-    void setFile(IfcParse::IfcFile*) {}
+	void finalize();
+	void writeHeader();
+    void writeHeader(nlohmann::json::reference &ifc);
+	void setFile(IfcParse::IfcFile*) {}
 };
 
 #endif
