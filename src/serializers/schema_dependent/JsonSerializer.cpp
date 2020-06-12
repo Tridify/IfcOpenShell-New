@@ -304,6 +304,8 @@ namespace {
             return;
         }
 
+        // TODO: This is commented out to replicate old output where FillsVoids elements (IfcWindow, IfcDoor...)
+        //  were listed under IfcBuildingStorey etc.
         /*
         if (product->declaration().is(IfcSchema::IfcElement::Class())) {
             auto voids = product->as<IfcSchema::IfcElement>()->FillsVoids();
@@ -325,7 +327,7 @@ namespace {
         // Add entity instance properties to json object
         format_entity_instance(product, targetObject);
 
-        // Handle IfcSpatialStructureElement mapping
+        // Descend into related objects under IfcSpatialStructureElement
         if (product->declaration().is(IfcSchema::IfcSpatialStructureElement::Class())) {
             IfcSchema::IfcSpatialStructureElement* structure = (IfcSchema::IfcSpatialStructureElement*) product;
 
@@ -338,19 +340,7 @@ namespace {
             }
         }
 
-        // Handle IfcElement mapping
-        if (product->declaration().is(IfcSchema::IfcOpeningElement::Class())) {
-            IfcSchema::IfcOpeningElement* opening = static_cast<IfcSchema::IfcOpeningElement*>(product);
-            IfcSchema::IfcElement::list::ptr fills = get_related
-                    <IfcSchema::IfcOpeningElement, IfcSchema::IfcRelFillsElement, IfcSchema::IfcElement>
-                    (opening, &IfcSchema::IfcOpeningElement::HasFillings, &IfcSchema::IfcRelFillsElement::RelatedBuildingElement);
-
-            for (IfcSchema::IfcElement::list::it it = fills->begin(); it != fills->end(); ++it) {
-                descend(*it, targetObject);
-            }
-        }
-
-
+        // Descend into openings under IfcElement
         if (product->declaration().is(IfcSchema::IfcElement::Class())) {
             IfcSchema::IfcElement *element = static_cast<IfcSchema::IfcElement*>(product);
             IfcSchema::IfcOpeningElement::list::ptr openings = get_related
@@ -361,6 +351,22 @@ namespace {
                 descend(*it, targetObject);
             }
         }
+
+        // TODO: This is commented out to replicate old output where FillsVoids elements (IfcWindow, IfcDoor...)
+        //  were listed under IfcBuildingStorey etc. If this was enabled, the fills would be duplicated under openings
+        // Descend into fills under IfcOpeningElement
+        /*
+        if (product->declaration().is(IfcSchema::IfcOpeningElement::Class())) {
+            IfcSchema::IfcOpeningElement* opening = static_cast<IfcSchema::IfcOpeningElement*>(product);
+            IfcSchema::IfcElement::list::ptr fills = get_related
+                    <IfcSchema::IfcOpeningElement, IfcSchema::IfcRelFillsElement, IfcSchema::IfcElement>
+                    (opening, &IfcSchema::IfcOpeningElement::HasFillings, &IfcSchema::IfcRelFillsElement::RelatedBuildingElement);
+
+            for (IfcSchema::IfcElement::list::it it = fills->begin(); it != fills->end(); ++it) {
+                descend(*it, targetObject);
+            }
+        }
+        */
 
 #ifdef SCHEMA_IfcRelDecomposes_HAS_RelatedObjects
         IfcSchema::IfcObjectDefinition::list::ptr structures = get_related
@@ -377,12 +383,13 @@ namespace {
         );
 #endif
 
+        // Descend into IfcObjectDefinitions under this element
         for (IfcSchema::IfcObjectDefinition::list::it it = structures->begin(); it != structures->end(); ++it) {
             IfcSchema::IfcObjectDefinition* ob = *it;
             descend(ob, targetObject);
         }
 
-        // Handle IfcObject mapping
+        // Format property sets, quantities and the object type under this IfcObject
         if (product->declaration().is(IfcSchema::IfcObject::Class())) {
             IfcSchema::IfcObject* object = product->as<IfcSchema::IfcObject>();
 
@@ -390,6 +397,7 @@ namespace {
                     <IfcSchema::IfcObject, IfcSchema::IfcRelDefinesByProperties, IfcSchema::IfcPropertySetDefinition>
                     (object, &IfcSchema::IfcObject::IsDefinedBy, &IfcSchema::IfcRelDefinesByProperties::RelatingPropertyDefinition);
 
+            // Format property sets & quantities
             for (IfcSchema::IfcPropertySetDefinition::list::it it = property_sets->begin(); it != property_sets->end(); ++it) {
                 IfcSchema::IfcPropertySetDefinition* pset = *it;
 
@@ -413,6 +421,7 @@ namespace {
                 (object, &IfcSchema::IfcObject::IsDefinedBy, &IfcSchema::IfcRelDefinesByType::RelatingType);
 #endif
 
+            // Format type
             for (IfcSchema::IfcTypeObject::list::it it = types->begin(); it != types->end(); ++it) {
                 IfcSchema::IfcTypeObject* type = *it;
 
@@ -421,10 +430,11 @@ namespace {
             }
         }
 
-        // Handle IfcProduct mapping
+        // Format links to layers and materials under IfcProduct
         if (product->declaration().is(IfcSchema::IfcProduct::Class())) {
             std::map<std::string, IfcUtil::IfcBaseEntity*> layers = IfcGeom::Kernel::get_layers(product);
 
+            // Format layer name links
             for (std::map<std::string, IfcUtil::IfcBaseEntity*>::const_iterator it = layers.begin(); it != layers.end(); ++it) {
                 // IfcPresentationLayerAssignments don't have GUIDs (only optional Identifier) so use name as the ID.
                 // Note that the IfcPresentationLayerAssignment passed here doesn't really matter as as_link is true for the format_entity_instance() call.
@@ -436,6 +446,7 @@ namespace {
 
             IfcSchema::IfcRelAssociates::list::ptr associations = product->HasAssociations();
 
+            // Format material GUID links
             for (IfcSchema::IfcRelAssociates::list::it it = associations->begin(); it != associations->end(); ++it) {
                 if ((*it)->as<IfcSchema::IfcRelAssociatesMaterial>()) {
                     IfcSchema::IfcMaterialSelect* mat = (*it)->as<IfcSchema::IfcRelAssociatesMaterial>()->RelatingMaterial();
