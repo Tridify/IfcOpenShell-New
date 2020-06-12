@@ -603,8 +603,7 @@ int main(int argc, char** argv) {
             if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
                 time_t start, end;
                 time(&start);
-                JsonSerializer s(IfcUtil::path::to_utf8(output_temp_filename));
-                s.setFile(&ifc_file);
+                JsonSerializer s(ifc_file, IfcUtil::path::to_utf8(output_temp_filename));
                 Logger::Status("Writing JSON output...");
                 s.finalize();
                 time(&end);
