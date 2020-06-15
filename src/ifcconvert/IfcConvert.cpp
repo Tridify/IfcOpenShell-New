@@ -32,6 +32,7 @@
 #include "../serializers/StepSerializer.h"
 #include "../serializers/WavefrontObjSerializer.h"
 #include "../serializers/XmlSerializer.h"
+#include "../serializers/JsonSerializer.h"
 #include "../serializers/SvgSerializer.h"
 
 #include "../ifcgeom_schema_agnostic/IfcGeomFilter.h"
@@ -100,7 +101,8 @@ void print_usage(bool suggest_help = true)
 #endif
         << "  .stp   STEP           Standard for the Exchange of Product Data\n"
         << "  .igs   IGES           Initial Graphics Exchange Specification\n"
-        << "  .xml   XML            Property definitions and decomposition tree\n"
+        << "  .xml   XML            Property definitions and decomposition tree in XML\n"
+        << "  .json  JSON           Property definitions and decomposition tree in JSON\n"
         << "  .svg   SVG            Scalable Vector Graphics (2D floor plan)\n"
 		<< "  .ifc   IFC-SPF        Industry Foundation Classes\n"
 		<< "\n"
@@ -544,7 +546,8 @@ int main(int argc, char** argv) {
 		IGS = IfcUtil::path::from_utf8(".igs"),
 		SVG = IfcUtil::path::from_utf8(".svg"),
 		XML = IfcUtil::path::from_utf8(".xml"),
-		IFC = IfcUtil::path::from_utf8(".ifc");
+		IFC = IfcUtil::path::from_utf8(".ifc"),
+        JSON = IfcUtil::path::from_utf8("json"); // getting output_extension gets only 4 last characters
 
 	// @todo clean up serializer selection
 	// @todo detect program options that conflict with the chosen serializer
