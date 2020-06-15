@@ -593,6 +593,27 @@ int main(int argc, char** argv) {
 		write_log(!quiet);
 		return exit_code;
 	}
+    else if (output_extension == JSON) {
+        int exit_code = EXIT_FAILURE;
+        try {
+            if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
+                time_t start, end;
+                time(&start);
+                JsonSerializer s(ifc_file, IfcUtil::path::to_utf8(output_temp_filename));
+                Logger::Status("Writing JSON output...");
+                s.finalize();
+                time(&end);
+                Logger::Status("Done! Conversion took " +  format_duration(start, end));
+
+                IfcUtil::path::rename_file(IfcUtil::path::to_utf8(output_temp_filename), IfcUtil::path::to_utf8(output_filename));
+                exit_code = EXIT_SUCCESS;
+            }
+        } catch (const std::exception& e) {
+            Logger::Error(e);
+        }
+        write_log(!quiet);
+        return exit_code;
+    }
 
     /// @todo Clean up this filter code further.
     std::vector<geom_filter> used_filters;

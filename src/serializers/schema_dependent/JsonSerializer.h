@@ -40,8 +40,7 @@ public:
 	}
 
 	void finalize();
-	void writeHeader();
-    void writeHeader(nlohmann::json::reference &ifc);
+    void writeIfcHeader(nlohmann::json::reference ifc);
 	void setFile(IfcParse::IfcFile*) {}
 };
 

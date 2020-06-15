@@ -188,7 +188,7 @@ namespace {
                 instance->data().getArgument(i);
             }
             catch (const std::exception &) {
-                Logger::Error("Expected " + boost::lexical_cast<std::string>(n) + " attributes for:", instance);
+                Logger::Error("Expected " + std::to_string(n) + " attributes for:", instance);
                 break;
             }
 
@@ -236,7 +236,7 @@ namespace {
     }
 
     std::string qualify_unrooted_instance(IfcUtil::IfcBaseClass *inst) {
-        return inst->declaration().name() + "_" + boost::lexical_cast<std::string>(inst->data().id());
+        return inst->declaration().name() + "_" + std::to_string(inst->data().id());
     }
 
     // Initializes an array in a jsonObject with jsonKey, creates an empty object to that array and returns the reference
@@ -493,7 +493,7 @@ namespace {
     }
 } // ~unnamed namespace
 
-void MAKE_TYPE_NAME(JsonSerializer)::writeHeader(json::reference ifc) {
+void MAKE_TYPE_NAME(JsonSerializer)::writeIfcHeader(json::reference ifc) {
     json::reference header = ifc["header"];
     json::reference fileDescription = header["file_description"];
     json::reference fileName = header["file_name"];
@@ -565,7 +565,7 @@ void MAKE_TYPE_NAME(JsonSerializer)::finalize() {
     json::reference ifc = jsonRoot["ifc"];
 
     // Write the SPF header
-    writeHeader(ifc);
+    writeIfcHeader(ifc);
 
     // Write the decomposition
     descend(project, ifc["decomposition"]);
@@ -584,10 +584,10 @@ void MAKE_TYPE_NAME(JsonSerializer)::finalize() {
     }
 
     // Write all quantities and values
-    IfcSchema::IfcElementQuantity::list::ptr qtosets = file->instances_by_type<IfcSchema::IfcElementQuantity>();
+    IfcSchema::IfcElementQuantity::list::ptr quantitySets = file->instances_by_type<IfcSchema::IfcElementQuantity>();
     json::reference quantities = ifc["quantities"];
 
-    for (IfcSchema::IfcElementQuantity::list::it it = qtosets->begin(); it != qtosets->end(); ++it) {
+    for (IfcSchema::IfcElementQuantity::list::it it = quantitySets->begin(); it != quantitySets->end(); ++it) {
         IfcSchema::IfcElementQuantity *qto = *it;
 
         json::reference quantityObject = getEmptyObjectReferenceInArray(qto->declaration().name(), quantities);

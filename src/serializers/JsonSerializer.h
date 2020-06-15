@@ -20,6 +20,7 @@ public:
 	virtual ~JsonSerializer() {}
 
 	bool ready() { return true; }
+    void writeHeader() {}
 
 	void finalize() { implementation_->finalize(); }
 	void setFile(IfcParse::IfcFile*) { throw IfcParse::IfcException("Should be supplied on construction"); }
